@@ -1,6 +1,6 @@
 {
   "scripts": {
-    "dev": "node server.js"
+    "dev": "node --env-file=.env server.js"
   },
   "dependencies": {
     "cors": "^2.8.5",

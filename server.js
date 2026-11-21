@@ -1,3 +1,4 @@
+const crypto = require("crypto");
 const express = require("express");
 const app = express();
 const cors = require("cors");
@@ -5,11 +6,21 @@ const cors = require("cors");
 app.use(cors());
 const port = 3001;
 
-const API_Key = "frostburg_cs";
+// The API key comes from the environment, never from source control.
+const API_KEY = process.env.API_KEY;
+if (!API_KEY) {
+  console.error("Missing API_KEY environment variable. See .env.example.");
+  process.exit(1);
+}
+const expectedKey = Buffer.from(API_KEY);
 
+// Clients send the key in the "x-api-key" header.
 app.use((req, res, next) => {
-  const apiKey = req.query.api_key;
-  if (apiKey != API_Key) {
+  const provided = Buffer.from(req.get("x-api-key") || "");
+  const valid =
+    provided.length === expectedKey.length &&
+    crypto.timingSafeEqual(provided, expectedKey);
+  if (!valid) {
     return res.status(401).json({ error: "Invalid Key" });
   }
   next();
@@ -467,6 +478,6 @@ app.get("/api/Frostburg", (req, res) => {
 
 app.listen(port, () => {
   console.log(`Server is listening on http://localhost:${port}
-    httpLink: http://localhost:3001/api/Frostburg?api_key={API_KEY_HERE}
+    Example: curl -H "x-api-key: $API_KEY" http://localhost:${port}/api/weather
     `);
 });
