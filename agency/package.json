@@ -1,0 +1,13 @@
+{
+  "name": "ai-receptionist-agency",
+  "private": true,
+  "type": "module",
+  "description": "Finds local service businesses, audits missed-call revenue, builds demo AI receptionists and proposals.",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "find-leads": "node cli.mjs find-leads",
+    "demo": "node cli.mjs demo",
+    "run-batch": "node cli.mjs run"
+  }
+}
