@@ -1,0 +1,630 @@
+<title>Probate Deal Desk</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: sticky top bar with tabs; one working column, wide tables scroll inside their own box. */
+:root {
+  --bg: #f6f6f3; --panel: #ffffff; --ink: #1c2421; --muted: #5d6762; --line: #dfe2dd;
+  --accent: #1f6b4f; --accent-ink: #ffffff; --accent-soft: #e3f0ea;
+  --warn: #9a5b00; --warn-soft: #fbf0dc; --bad: #b3261e; --bad-soft: #fbe7e5; --good: #1f6b4f;
+  --font: "IBM Plex Sans", system-ui, -apple-system, Segoe UI, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #121614; --panel: #1a201d; --ink: #e6ebe8; --muted: #9aa59f; --line: #2c3430;
+  --accent: #5cc196; --accent-ink: #0d1a14; --accent-soft: #1d3a2e;
+  --warn: #e8b25a; --warn-soft: #3a2e17; --bad: #f2867d; --bad-soft: #3d1e1b; --good: #5cc196; color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #121614; --panel: #1a201d; --ink: #e6ebe8; --muted: #9aa59f; --line: #2c3430;
+  --accent: #5cc196; --accent-ink: #0d1a14; --accent-soft: #1d3a2e;
+  --warn: #e8b25a; --warn-soft: #3a2e17; --bad: #f2867d; --bad-soft: #3d1e1b; --good: #5cc196; color-scheme: dark; }
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font: 15px/1.5 var(--font); }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--panel); }
+header { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--panel); border-bottom: 1px solid var(--line);
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.bar { max-width: 1120px; margin: 0 auto; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; padding-block: 10px; }
+.brand { font-weight: 700; letter-spacing: -0.01em; font-size: 17px; }
+.brand small { font-weight: 500; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; margin-left: 8px; }
+nav { display: flex; gap: 4px; overflow-x: auto; }
+nav a { color: var(--muted); text-decoration: none; padding: 6px 10px; border-radius: 6px; white-space: nowrap; font-weight: 500; }
+nav a[aria-current="page"] { color: var(--ink); background: var(--accent-soft); }
+nav a .count { font: 500 12px var(--mono); background: var(--accent); color: var(--accent-ink); border-radius: 9px; padding: 0 6px; margin-left: 4px; }
+main { max-width: 1120px; margin: 0 auto; padding-block: 20px 60px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 20px; }
+h1 { font-size: 24px; margin: 0; text-wrap: balance; letter-spacing: -0.01em; }
+h2 { font-size: 17px; margin: 0; text-wrap: balance; }
+p { margin: 0; }
+.muted { color: var(--muted); }
+.banner { border: 1px solid var(--warn); background: var(--warn-soft); border-radius: 8px; padding: 10px 14px; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
+.banner b { color: var(--warn); }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: grid; gap: 12px; min-width: 0; align-content: start; }
+.row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.spread { justify-content: space-between; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.stat { background: var(--panel); padding: 10px 12px; }
+.stat .n { font: 500 22px var(--mono); font-variant-numeric: tabular-nums; }
+.stat .l { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.tablewrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+table { border-collapse: collapse; width: 100%; min-width: 720px; }
+th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 600; }
+tr:last-child td { border-bottom: 0; }
+tbody tr { cursor: pointer; }
+tbody tr:hover td { background: var(--accent-soft); }
+.num { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.chip { display: inline-block; font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 10px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+.chip.good { color: var(--good); border-color: var(--good); background: var(--accent-soft); }
+.chip.warn { color: var(--warn); border-color: var(--warn); background: var(--warn-soft); }
+.chip.bad { color: var(--bad); border-color: var(--bad); background: var(--bad-soft); }
+.score { display: inline-flex; align-items: center; gap: 6px; }
+.score i { display: inline-block; width: 44px; height: 6px; border-radius: 3px; background: var(--line); position: relative; overflow: hidden; }
+.score i b { position: absolute; inset: 0 auto 0 0; background: var(--accent); }
+button, .btn { font: 600 14px var(--font); padding: 8px 14px; border-radius: 7px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); cursor: pointer; }
+button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+button.danger { color: var(--bad); }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+input, select, textarea { font: 14px var(--font); padding: 8px 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--bg); color: var(--ink); width: 100%; }
+textarea { font-family: var(--mono); font-size: 13px; min-height: 160px; }
+label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); font-weight: 500; }
+.form { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+.math { display: grid; grid-template-columns: 1fr auto; gap: 4px 16px; font-size: 14px; }
+.math .num { text-align: right; }
+.math .total { border-top: 1px solid var(--line); padding-top: 4px; font-weight: 700; }
+.letter { white-space: pre-wrap; font: 13px/1.55 var(--mono); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 12px; max-height: 260px; overflow: auto; }
+.list { display: grid; gap: 8px; }
+.item { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; display: grid; gap: 6px; }
+.blocked { color: var(--bad); font-size: 13px; }
+.script li { margin-bottom: 6px; }
+.empty { color: var(--muted); padding: 12px 0; }
+.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 8px; font-weight: 500; z-index: 20; }
+dialog { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--ink); width: min(760px, calc(100vw - 32px)); padding: 0; }
+dialog::backdrop { background: rgba(0,0,0,0.45); }
+.dlg { padding: 18px; display: grid; gap: 14px; max-height: 85vh; overflow-y: auto; }
+@media (prefers-reduced-motion: no-preference) { tbody tr td { transition: background 0.12s; } }
+</style>
+
+<header><div class="bar">
+  <div class="brand">Probate Deal Desk<small id="modeTag">Test mode</small></div>
+  <nav id="nav">
+    <a href="#today">Today</a>
+    <a href="#leads">Leads</a>
+    <a href="#approvals">Approvals<span class="count" id="pendingCount" hidden></span></a>
+    <a href="#buyers">Cash buyers</a>
+    <a href="#settings">Settings</a>
+  </nav>
+</div></header>
+
+<main id="app">
+  <div class="panel"><p class="muted">Loading your deal desk…</p></div>
+</main>
+
+<dialog id="dlg"><div class="dlg" id="dlgBody"></div></dialog>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+// ---------- Pure logic (ported from deal-engine/src) ----------
+const STAGES = ['new','contacted','talking','not_now','offer_sent','under_contract','assigned','closed','dead','opted_out'];
+const STAGE_LABEL = { new:'New', contacted:'Contacted', talking:'Talking', not_now:'Not now', offer_sent:'Offer sent', under_contract:'Under contract', assigned:'Assigned', closed:'Closed', dead:'Dead', opted_out:'Opted out' };
+const CADENCE = [3,7,14,30,60,90,180];
+const STATE_TZ = { AL:'America/Chicago',AK:'America/Anchorage',AZ:'America/Phoenix',AR:'America/Chicago',CA:'America/Los_Angeles',CO:'America/Denver',CT:'America/New_York',DE:'America/New_York',DC:'America/New_York',FL:'America/New_York',GA:'America/New_York',HI:'Pacific/Honolulu',ID:'America/Boise',IL:'America/Chicago',IN:'America/Indiana/Indianapolis',IA:'America/Chicago',KS:'America/Chicago',KY:'America/New_York',LA:'America/Chicago',ME:'America/New_York',MD:'America/New_York',MA:'America/New_York',MI:'America/Detroit',MN:'America/Chicago',MS:'America/Chicago',MO:'America/Chicago',MT:'America/Denver',NE:'America/Chicago',NV:'America/Los_Angeles',NH:'America/New_York',NJ:'America/New_York',NM:'America/Denver',NY:'America/New_York',NC:'America/New_York',ND:'America/Chicago',OH:'America/New_York',OK:'America/Chicago',OR:'America/Los_Angeles',PA:'America/New_York',RI:'America/New_York',SC:'America/New_York',SD:'America/Chicago',TN:'America/Chicago',TX:'America/Chicago',UT:'America/Denver',VT:'America/New_York',VA:'America/New_York',WA:'America/Los_Angeles',WV:'America/New_York',WI:'America/Chicago',WY:'America/Denver' };
+const STATE_RULES = { FL:{start:8,end:20,note:'Florida: calls 8 AM to 8 PM, max 3 per day'}, OK:{start:8,end:20,note:'Oklahoma: calls 8 AM to 8 PM, max 3 per day'}, MD:{note:'Maryland: max 3 calls per day'}, TX:{sundayStart:12,note:'Texas: no sales calls before noon Sunday'} };
+const REPAIR = { turnkey:5, light:20, medium:35, heavy:55, gut:80 };
+const LIST_W = { probate:30, inherited:30, 'tax delinquent':25, 'pre-foreclosure':25, foreclosure:25, 'code violation':20, eviction:18, vacant:15, absentee:8 };
+
+const usd = (n) => n == null || isNaN(n) ? '—' : (n < 0 ? '-$' : '$') + Math.abs(Math.round(n)).toLocaleString('en-US');
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
+const num = (v) => { if (v == null || v === '') return null; const n = Number(String(v).replace(/[$,%\s]/g,'')); return Number.isFinite(n) ? n : null; };
+const yes = (v) => /^(y|yes|true|1|x)$/i.test(String(v ?? '').trim());
+
+function normPhone(p) { const d = String(p||'').replace(/\D/g,''); return d.length===10 ? '+1'+d : d.length===11 && d[0]==='1' ? '+'+d : null; }
+function prettyPhone(p) { const m = /^\+1(\d{3})(\d{3})(\d{4})$/.exec(p||''); return m ? `(${m[1]}) ${m[2]}-${m[3]}` : (p||''); }
+function normAddr(a) { return String(a||'').toUpperCase().replace(/[.,#]/g,' ').replace(/\bSTREET\b/g,'ST').replace(/\bAVENUE\b/g,'AVE').replace(/\bROAD\b/g,'RD').replace(/\bDRIVE\b/g,'DR').replace(/\bLANE\b/g,'LN').replace(/\s+/g,' ').trim(); }
+function leadId(address, zip) { let h = 0; const s = normAddr(address)+'|'+String(zip||'').slice(0,5); for (let i=0;i<s.length;i++) h = (h*31 + s.charCodeAt(i)) >>> 0; return 'L' + h.toString(36); }
+
+function parseCsv(text) {
+  const rows = []; let row = [], f = '', q = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) { if (c === '"') { if (text[i+1] === '"') { f += '"'; i++; } else q = false; } else f += c; }
+    else if (c === '"') q = true; else if (c === ',') { row.push(f); f = ''; }
+    else if (c === '\n' || c === '\r') { if (c === '\r' && text[i+1] === '\n') i++; row.push(f); f = ''; if (row.some(x => x !== '')) rows.push(row); row = []; }
+    else f += c;
+  }
+  row.push(f); if (row.some(x => x !== '')) rows.push(row);
+  if (!rows.length) return [];
+  const h = rows[0].map(x => x.trim());
+  return rows.slice(1).map(r => Object.fromEntries(h.map((k,i) => [k, (r[i] ?? '').trim()])));
+}
+
+const ALIASES = {
+  ownerName:['owner','owner name','owner 1 full name','decedent','decedent name','deceased','name'],
+  contactName:['personal representative','pr name','executor','executor name','administrator','petitioner','heir name','contact name'],
+  contactMailing:['pr address','personal representative address','executor address','petitioner address','contact address','mailing address','owner mailing address'],
+  address:['property address','address','situs address','site address','street'], city:['property city','city'], state:['property state','state','st'], zip:['property zip','zip','zip code'],
+  phone:['phone','phone 1','mobile','cell','phone number'], phone2:['phone 2','landline'], email:['email','email 1','email address'],
+  beds:['beds','bedrooms'], baths:['baths','bathrooms'], sqft:['sqft','square feet','building sqft','living sqft','living area'], yearBuilt:['year built'],
+  estValue:['estimated value','est value','avm','market value','zestimate'], assessedValue:['assessed value','tax assessed value'],
+  mortgageBalance:['mortgage balance','loan balance','open mortgage balance'], taxOwed:['tax owed','delinquent amount','taxes owed'],
+  condition:['condition','property condition'], vacant:['vacant','is vacant'], listType:['list type','list','lead type'], caseNumber:['case number','case #','case no'], filingDate:['filing date','date filed','case date'],
+};
+const key = (s) => String(s).toLowerCase().replace(/[^a-z0-9#%]+/g,' ').trim();
+function mapCols(headers) { const by = new Map(headers.map(h => [key(h), h])); const m = {}; for (const [f, al] of Object.entries(ALIASES)) for (const a of al) if (by.has(key(a))) { m[f] = by.get(key(a)); break; } return m; }
+
+function scoreLead(l) {
+  let s = 0; const why = [];
+  const lists = String(l.listType||'').toLowerCase().split(/[;|]/).map(x => x.trim()).filter(Boolean);
+  for (const x of lists) { const w = Object.entries(LIST_W).find(([k]) => x.includes(k)); if (w) { s += w[1]; why.push(w[0]); } }
+  if (lists.length > 1) { s += 10*(lists.length-1); why.push('on ' + lists.length + ' lists'); }
+  const eq = l.estValue && l.mortgageBalance != null ? (l.estValue - l.mortgageBalance) / l.estValue : null;
+  if (eq != null) { if (eq >= 0.5) { s += 20; why.push('50%+ equity'); } else if (eq >= 0.3) { s += 10; why.push('30%+ equity'); } else if (eq < 0.15) { s -= 20; why.push('low equity'); } }
+  if (l.vacant) { s += 12; why.push('vacant'); }
+  if (l.contactMailing && l.address && !normAddr(l.contactMailing).startsWith(normAddr(l.address))) { s += 8; why.push('heir lives elsewhere'); }
+  if (/poor|fair|distress|fixer/.test(String(l.condition||'').toLowerCase())) { s += 8; why.push(l.condition + ' condition'); }
+  if (!(l.phones||[]).length) why.push('needs skip trace');
+  return { score: Math.max(0, Math.min(100, s)), reasons: why };
+}
+
+function bucket(c, yb) { const s = String(c||'').toLowerCase();
+  if (/gut|teardown|fire/.test(s)) return 'gut'; if (/poor|heavy|distress|fixer/.test(s)) return 'heavy'; if (/fair|average|dated|medium/.test(s)) return 'medium';
+  if (/good|light/.test(s)) return 'light'; if (/excellent|turnkey|updated/.test(s)) return 'turnkey'; if (yb && yb < 1960) return 'heavy'; return 'medium'; }
+
+function analyze(l, cfg) {
+  const arv = l.arvOverride || l.estValue || (l.assessedValue ? Math.round(l.assessedValue*1.15) : null);
+  const b = bucket(l.condition, l.yearBuilt);
+  const repairs = l.repairsOverride ?? Math.round(((l.sqft || 1400) * REPAIR[b]) / 500) * 500;
+  if (!arv) return { ok:false, repairs, bucket:b };
+  const buyerPrice = Math.round(arv * cfg.buyerPct - repairs);
+  const mao = buyerPrice - cfg.targetFee;
+  const opening = Math.round(mao * 0.85 / 1000) * 1000;
+  const liens = (l.mortgageBalance||0) + (l.taxOwed||0);
+  const fee = l.askingPrice != null ? buyerPrice - l.askingPrice : null;
+  let grade = fee != null ? (fee >= cfg.targetFee ? 'A' : fee >= cfg.minFee ? 'B' : 'Pass') : (mao > liens && mao > 0 ? 'Offer' : 'Pass');
+  const notes = [];
+  if (!l.sqft && l.repairsOverride == null) notes.push('No square footage on the list, so repairs assume 1,400 sq ft.');
+  if (!l.arvOverride) notes.push('Value is the list estimate. Check 3 sold comps nearby before you offer.');
+  if (liens > mao) notes.push('Mortgage and taxes (' + usd(liens) + ') are more than your max offer. The estate may owe more than you can pay.');
+  return { ok:true, arv, repairs, bucket:b, buyerPrice, mao, opening, liens, fee, grade, notes };
+}
+
+const hr = (h) => (h % 12 || 12) + (h < 12 ? ' AM' : ' PM');
+function callWindow(state, d = new Date()) {
+  const tz = STATE_TZ[state] || 'America/New_York'; const r = Object.assign({start:8,end:21}, STATE_RULES[state]||{});
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US',{timeZone:tz,hour:'numeric',hourCycle:'h23',weekday:'short'}).formatToParts(d).map(p => [p.type,p.value]));
+  const hour = Number(parts.hour); const start = parts.weekday === 'Sun' && r.sundayStart ? r.sundayStart : r.start;
+  return { ok: hour >= start && hour < r.end, start, end: r.end, tz };
+}
+
+function checkSend(l, channel, optouts, dnc) {
+  const blocks = []; const warns = [];
+  const phone = (l.phones||[])[0];
+  if (channel === 'sms') {
+    if (!phone) blocks.push('No phone number yet (skip trace first)');
+    else if (optouts.has(phone)) blocks.push('Opted out');
+    else if (dnc.has(phone)) blocks.push('On the Do Not Call list');
+    const w = callWindow(l.state); if (!w.ok) blocks.push(`Outside texting hours (${hr(w.start)} to ${hr(w.end)} their time)`);
+    if (STATE_RULES[l.state]) warns.push(STATE_RULES[l.state].note);
+  }
+  if (channel === 'email' && !l.email) blocks.push('No email address');
+  if (channel === 'mail' && !(l.contactMailing || l.address)) blocks.push('No mailing address');
+  if (['opted_out','dead'].includes(l.stage)) blocks.push(STAGE_LABEL[l.stage]);
+  return { ok: !blocks.length, blocks, warns };
+}
+
+function lastTouch(l) { const h = (l.history||[]).filter(e => e.stage !== 'new'); return h.length ? Date.parse(h[h.length-1].at) : Date.parse(l.createdAt || Date.now()); }
+function touches(l) { return (l.history||[]).filter(e => /^(contacted|not_now|offer_sent|followup)$/.test(e.stage)).length; }
+function followUpDue(l, now = Date.now()) {
+  if (!['contacted','not_now','offer_sent'].includes(l.stage)) return null;
+  const n = touches(l); if (n > CADENCE.length) return null;
+  const due = lastTouch(l) + (CADENCE[Math.max(0,n-1)] || 3) * 864e5;
+  return due <= now ? { touch: n+1, due } : null;
+}
+
+const TPL = {
+  mail: `Dear {contact},
+
+I'm sorry for your loss. I'm reaching out because I understand you may be handling the estate of {decedent}, including the property at {address}.
+
+Settling an estate is a lot of work, and a house can be the hardest part: repairs, clean-out, taxes, insurance, and coordinating with family. I buy houses as-is, for cash, and I can work around the probate timeline. You wouldn't need to clean, repair, or list it, and there are no agent commissions.
+
+If selling the house would make things easier, call or text me at {myPhone}, or pick a time here: {bookingLink}. If not, I completely understand and won't bother you again.
+
+With sympathy,
+{myName}
+{company}`,
+  sms: `Hi {first}, this is {myName} with {company}. I'm sorry for your loss. I buy houses as-is for cash. Would you consider an offer on {address}? Reply STOP to opt out.`,
+  email: `Hi {first},
+
+Just following up on {address}. If an as-is cash sale would take something off your plate, I can give you a number within 24 hours, and we can close whenever the court allows. Pick a time here: {bookingLink}
+
+{myName}
+{company} | {myPhone}`,
+};
+const SCRIPT = [
+  ['Open', 'Hi {first}, this is {myName}. I sent you a letter about {address}. First, I\'m sorry for your loss. Is now an OK time?'],
+  ['Situation', 'How are things going with the estate? Has the court appointed you as the personal representative yet?'],
+  ['House', 'What shape is the house in? Is anyone living there? Anything that needs work, like the roof, HVAC or foundation?'],
+  ['Family', 'Is anyone else involved in the decision, like other heirs?'],
+  ['Timeline', 'Ideally, when would you want this wrapped up?'],
+  ['Price', 'Do you have a number in mind that would make this worth it for you? (Let them say a number first.)'],
+  ['Next step', 'Based on what you\'ve told me I can likely be around {opening}. I can send a simple agreement today, and you pick the closing date.'],
+];
+function vars(l, s, a) { const c = l.contactName || l.ownerName || 'there';
+  return { contact:c, first:c.split(/\s+/)[0], decedent:l.ownerName || 'your loved one', address:l.address, myName:s.myName || '[your name]', company:s.company || '[your company]', myPhone:s.myPhone || '[your phone]', bookingLink:s.bookingLink || '[your booking link]', opening: a && a.ok ? usd(a.opening) : '[offer]' }; }
+const fill = (t, v) => t.replace(/\{(\w+)\}/g, (m, k) => v[k] ?? m);
+
+function contractText(l, s, price) {
+  const d = new Date(); const close = new Date(d.getTime() + 45*864e5).toISOString().slice(0,10);
+  return `DRAFT FOR ATTORNEY REVIEW. Use the purchase agreement your attorney approves for ${l.state || 'your state'}. Probate sales may need court approval, and the personal representative must have Letters Testamentary or Letters of Administration to sign.
+
+RESIDENTIAL PURCHASE AND SALE AGREEMENT
+Date: ${d.toISOString().slice(0,10)}
+
+Seller: ${l.contactName || '[personal representative]'}, as Personal Representative of the Estate of ${l.ownerName || '[decedent]'}
+Buyer: ${s.buyerEntity || s.myName || '[your LLC]'} and/or assigns
+Property: ${l.address}, ${l.city || ''}, ${l.state || ''} ${l.zip || ''}
+
+1. Price: ${usd(price)} paid in cash at closing.
+2. Earnest money: $500 deposited with ${s.titleCompany || '[title company]'} within 3 business days.
+3. Condition: Buyer accepts the property as-is. Seller makes no repairs.
+4. Inspection period: Buyer may inspect and cancel for any reason within 14 days, with earnest money returned.
+5. Closing: on or before ${close}, or within 10 days after any required court approval, at ${s.titleCompany || '[title company]'}.
+6. Title: Seller conveys marketable title by personal representative's deed. Liens are paid from proceeds.
+7. Assignment: Buyer may assign this agreement. Seller acknowledges Buyer may receive a fee for the assignment.
+8. Personal property left in the house after closing becomes Buyer's.
+9. Buyer pays customary closing costs, except liens and estate debts.
+
+Seller: ______________________  Date: ________
+Buyer:  ______________________  Date: ________`;
+}
+
+// ---------- State ----------
+const DEFAULT_SETTINGS = { myName:'', company:'', myPhone:'', bookingLink:'', buyerEntity:'', titleCompany:'', state:'', county:'', buyerPct:0.70, targetFee:10000, minFee:5000 };
+const S = { db:null, canWrite:true, leads:new Map(), batches:new Map(), buyers:new Map(), optouts:new Set(), dnc:new Set(), settings:{...DEFAULT_SETTINGS}, loaded:false, error:null, filter:'active', q:'' };
+const cfg = () => ({ buyerPct: Number(S.settings.buyerPct) || 0.7, targetFee: Number(S.settings.targetFee) || 10000, minFee: Number(S.settings.minFee) || 5000 });
+
+function toast(msg) { const t = document.getElementById('toast'); t.textContent = msg; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => t.hidden = true, 2600); }
+async function copy(text) { try { await navigator.clipboard.writeText(text); toast('Copied'); } catch { toast('Copy blocked here. Select the text and copy it.'); } }
+
+async function write(path, data, merge) {
+  if (!S.db) { toast('Saving is not available in this view.'); return false; }
+  try { const ref = S.db.doc(path); if (merge) await ref.update(data); else await ref.set(data); return true; }
+  catch (e) { if (e && e.code === 'invalid_argument') S.canWrite = false; toast(e && e.code === 'quota_exceeded' ? 'Storage is full. Delete old dead leads.' : 'Could not save: ' + (e && e.message || 'try again')); return false; }
+}
+async function remove(path) { if (!S.db) return; try { await S.db.doc(path).delete(); } catch (e) { toast('Could not delete.'); } }
+
+async function setStage(l, stage, note) {
+  const history = [...(l.history||[]), { at: new Date().toISOString(), stage, note: note || '' }];
+  await write('leads/' + l.id, { stage, history }, true);
+  if (stage === 'opted_out') for (const p of l.phones||[]) await write('optouts/' + p.replace('+',''), { phone:p, at:new Date().toISOString() });
+}
+
+// ---------- Views ----------
+const app = document.getElementById('app');
+function route() { return (location.hash || '#today').slice(1); }
+
+function sampleBanner() {
+  const samples = [...S.leads.values()].filter(l => l.sample).length;
+  const st = S.settings.state && S.settings.county ? `${S.settings.county} County, ${S.settings.state}` : null;
+  return `<div class="banner"><span><b>Test mode.</b> Nothing is sent from here. Approved texts and letters are copied out or printed by you.</span>
+    ${samples ? `<span>${samples} leads are <b>sample data</b>, not real people. Delete them once you import your own list.</span>` : ''}
+    ${st ? `<span class="muted">Market: ${esc(st)}</span>` : `<span><a href="#settings">Add your state and county</a> so calling hours match your market.</span>`}</div>`;
+}
+
+function leadsSorted(filter) {
+  let arr = [...S.leads.values()];
+  if (filter === 'active') arr = arr.filter(l => !['dead','opted_out','closed'].includes(l.stage));
+  else if (filter && filter !== 'all') arr = arr.filter(l => l.stage === filter);
+  if (S.q) { const q = S.q.toLowerCase(); arr = arr.filter(l => [l.address,l.city,l.ownerName,l.contactName,l.caseNumber].join(' ').toLowerCase().includes(q)); }
+  return arr.sort((a,b) => (b.score||0) - (a.score||0));
+}
+
+function gradeChip(a) { if (!a.ok) return '<span class="chip warn">Needs value</span>';
+  const cls = { A:'good', B:'good', Offer:'good', Pass:'bad' }[a.grade] || ''; return `<span class="chip ${cls}">${a.grade}</span>`; }
+function scoreCell(s) { return `<span class="score"><span class="num">${s||0}</span><i><b style="width:${Math.min(100,s||0)}%"></b></i></span>`; }
+
+function viewToday() {
+  const all = [...S.leads.values()];
+  const counts = Object.fromEntries(STAGES.map(s => [s, all.filter(l => l.stage === s).length]));
+  const pending = [...S.batches.values()].filter(b => b.status === 'pending');
+  const calls = all.filter(l => ['new','contacted','talking','not_now'].includes(l.stage) && (l.phones||[]).length && !S.optouts.has(l.phones[0]))
+    .map(l => ({ l, a: analyze(l, cfg()) })).filter(x => !x.a.ok || x.a.grade !== 'Pass').sort((x,y) => (y.l.stage==='talking') - (x.l.stage==='talking') || (y.l.score||0) - (x.l.score||0)).slice(0, 12);
+  const due = all.map(l => ({ l, f: followUpDue(l) })).filter(x => x.f);
+  const fresh = all.filter(l => l.stage === 'new' && !l.letterBatch);
+  const pipeline = ['new','contacted','talking','offer_sent','under_contract','assigned','closed'];
+  return `${sampleBanner()}
+  <div class="row spread"><h1>Today</h1><button class="primary" data-act="draft-today" ${S.canWrite?'':'disabled'}>Draft today's outreach</button></div>
+  <div class="stats">${pipeline.map(s => `<div class="stat"><div class="n">${counts[s]}</div><div class="l">${STAGE_LABEL[s]}</div></div>`).join('')}</div>
+  <div class="grid2">
+    <section class="panel"><div class="row spread"><h2>Waiting for your tap</h2><a href="#approvals">Open approvals</a></div>
+      ${pending.length ? `<div class="list">${pending.map(b => `<div class="item"><div class="row spread"><b>${esc(b.label)}</b><span class="chip">${b.items.length} to send</span></div>
+        <div class="row"><button class="primary" data-act="approve" data-id="${b.id}">Approve</button><a href="#approvals">Review first</a></div></div>`).join('')}</div>`
+        : `<p class="empty">Nothing waiting. ${fresh.length ? `${fresh.length} new leads have no letter yet. Press <b>Draft today's outreach</b>.` : ''}</p>`}
+    </section>
+    <section class="panel"><h2>Follow-ups due (${due.length})</h2>
+      ${due.length ? `<div class="list">${due.slice(0,8).map(x => `<div class="item" data-open="${x.l.id}" style="cursor:pointer"><div class="row spread"><b>${esc(x.l.address)}</b><span class="chip warn">Touch ${x.f.touch}</span></div><span class="muted">${esc(x.l.contactName||x.l.ownerName)} · ${STAGE_LABEL[x.l.stage]}</span></div>`).join('')}</div>`
+        : '<p class="empty">No follow-ups due. Leads you contact come back here on day 3, 7, 14, 30, 60, 90 and 180.</p>'}
+    </section>
+  </div>
+  <section class="panel"><div class="row spread"><h2>Your call list</h2><span class="muted">Sellers who replied first, then highest score</span></div>
+    ${calls.length ? `<div class="tablewrap"><table><thead><tr><th>Score</th><th>Who to call</th><th>Property</th><th>Open at</th><th>Max</th><th>Stage</th></tr></thead><tbody>
+    ${calls.map(({l,a}) => `<tr data-open="${l.id}"><td>${scoreCell(l.score)}</td><td><b>${esc(l.contactName||l.ownerName)}</b><br><span class="num">${esc(prettyPhone(l.phones[0]))}</span></td>
+      <td>${esc(l.address)}<br><span class="muted">${esc((l.reasons||[]).join(' · '))}</span></td><td class="num">${a.ok?usd(a.opening):'—'}</td><td class="num">${a.ok?usd(a.mao):'—'}</td><td><span class="chip ${l.stage==='talking'?'good':''}">${STAGE_LABEL[l.stage]}</span></td></tr>`).join('')}
+    </tbody></table></div>` : '<p class="empty">No one to call yet. Import a list with phone numbers on the Leads tab.</p>'}
+  </section>`;
+}
+
+function viewLeads() {
+  const rows = leadsSorted(S.filter);
+  return `${sampleBanner()}
+  <div class="row spread"><h1>Leads</h1><div class="row"><button data-act="import" ${S.canWrite?'':'disabled'}>Import CSV</button><button data-act="add" ${S.canWrite?'':'disabled'}>Add one</button></div></div>
+  <div class="row"><select id="f-stage" style="width:auto"><option value="active">Active</option><option value="all">All</option>${STAGES.map(s => `<option value="${s}">${STAGE_LABEL[s]}</option>`).join('')}</select>
+    <input id="f-q" placeholder="Search address, name, case number" style="max-width:320px" value="${esc(S.q)}"></div>
+  ${rows.length ? `<div class="tablewrap"><table><thead><tr><th>Score</th><th>Property</th><th>Estate contact</th><th>Value</th><th>Max offer</th><th>Deal</th><th>Stage</th></tr></thead><tbody>
+  ${rows.map(l => { const a = analyze(l, cfg()); return `<tr data-open="${l.id}"><td>${scoreCell(l.score)}</td><td><b>${esc(l.address)}</b><br><span class="muted">${esc([l.city,l.state,l.zip].filter(Boolean).join(', '))}${l.sample?' · sample':''}</span></td>
+    <td>${esc(l.contactName||'—')}<br><span class="muted">Estate of ${esc(l.ownerName||'—')}</span></td><td class="num">${usd(a.arv)}</td><td class="num">${a.ok?usd(a.mao):'—'}</td><td>${gradeChip(a)}</td><td><span class="chip">${STAGE_LABEL[l.stage]||l.stage}</span></td></tr>`; }).join('')}
+  </tbody></table></div>` : `<div class="panel"><p class="empty">No leads here. Import the probate list you pull from the county clerk, PropStream or DealMachine as a CSV. Any column names work; the app finds the address, executor, phone and value columns.</p></div>`}`;
+}
+
+function viewApprovals() {
+  const list = [...S.batches.values()].sort((a,b) => (b.createdAt||'').localeCompare(a.createdAt||''));
+  const pending = list.filter(b => b.status === 'pending'); const done = list.filter(b => b.status !== 'pending').slice(0, 10);
+  const card = (b) => `<section class="panel"><div class="row spread"><h2>${esc(b.label)}</h2><span class="chip ${b.status==='pending'?'warn':b.status==='approved'?'good':''}">${esc(b.status === 'pending' ? 'Waiting for you' : b.status === 'approved' ? 'Approved' : 'Rejected')}</span></div>
+    <p class="muted">${b.items.length} ready${b.excluded && b.excluded.length ? `, ${b.excluded.length} held back by the safety checks` : ''}. Drafted ${new Date(b.createdAt).toLocaleString()}.</p>
+    ${b.items.slice(0, 2).map(i => `<div class="letter">${esc(i.body)}</div>`).join('')}
+    ${b.items.length > 2 ? `<p class="muted">+ ${b.items.length - 2} more, each personalised.</p>` : ''}
+    ${(b.excluded||[]).length ? `<details><summary>Why ${b.excluded.length} were held back</summary>${b.excluded.map(x => `<p class="blocked">${esc(x.address)}: ${esc(x.reasons.join(', '))}</p>`).join('')}</details>` : ''}
+    ${[...new Set(b.items.flatMap(i => i.warns||[]))].map(w => `<p class="chip warn">${esc(w)}</p>`).join('')}
+    <div class="row">${b.status === 'pending' ? `<button class="primary" data-act="approve" data-id="${b.id}">Approve ${b.items.length}</button><button data-act="reject" data-id="${b.id}">Reject</button>` : ''}
+      ${b.status === 'approved' ? `<button data-act="copy-batch" data-id="${b.id}">Copy all ${b.channel === 'mail' ? 'letters' : 'messages'}</button>` : ''}</div></section>`;
+  return `${sampleBanner()}<h1>Approvals</h1>
+  <p class="muted">Everything to a seller waits here for one tap. That keeps you inside the TCPA and state rules: fines run $500 to $1,500 per text or call. The app already removed opt-outs, Do Not Call numbers and anyone outside legal hours.</p>
+  ${pending.length ? pending.map(card).join('') : '<div class="panel"><p class="empty">Nothing waiting for approval. Drafts appear here after you press <b>Draft today\'s outreach</b> on Today.</p></div>'}
+  ${done.length ? `<h2>Recent</h2>${done.map(card).join('')}` : ''}`;
+}
+
+function viewBuyers() {
+  const list = [...S.buyers.values()].sort((a,b) => (a.name||'').localeCompare(b.name||''));
+  return `${sampleBanner()}<div class="row spread"><h1>Cash buyers</h1><div class="row"><button data-act="import-buyers" ${S.canWrite?'':'disabled'}>Import CSV</button><button data-act="add-buyer" ${S.canWrite?'':'disabled'}>Add buyer</button></div></div>
+  <p class="muted">The buyers who take your contracts. Each lead's page lists the ones who buy in that zip and can pay the buyer price.</p>
+  ${list.length ? `<div class="tablewrap"><table><thead><tr><th>Name</th><th>Phone</th><th>Email</th><th>Zips</th><th>Max price</th></tr></thead><tbody>
+  ${list.map(b => `<tr data-buyer="${b.id}"><td><b>${esc(b.name)}</b>${b.sample?' <span class="muted">· sample</span>':''}</td><td class="num">${esc(prettyPhone(b.phone))}</td><td>${esc(b.email||'')}</td><td>${esc((b.zips||[]).join(' '))}</td><td class="num">${usd(b.maxPrice)}</td></tr>`).join('')}
+  </tbody></table></div>` : '<div class="panel"><p class="empty">No buyers yet. Local real estate investor meetups and recent cash sales at the county recorder are the usual sources.</p></div>'}`;
+}
+
+function viewSettings() {
+  const s = S.settings; const f = (k, label, ph, type='text') => `<label for="s-${k}">${label}<input id="s-${k}" data-set="${k}" type="${type}" value="${esc(s[k] ?? '')}" placeholder="${esc(ph||'')}"></label>`;
+  return `${sampleBanner()}<h1>Settings</h1>
+  <section class="panel"><h2>You</h2><p class="muted">Used in letters, texts and contracts.</p><div class="form">
+    ${f('myName','Your name','Stephen')}${f('company','Company','Your Company LLC')}${f('myPhone','Call-back number','(214) 555-0100')}
+    ${f('bookingLink','Booking link','Google Calendar appointment link')}${f('buyerEntity','Buying entity on contracts','Your Company LLC')}${f('titleCompany','Title company','')}</div></section>
+  <section class="panel"><h2>Market</h2><div class="form">
+    <label for="s-state">State<select id="s-state" data-set="state"><option value="">Choose</option>${Object.keys(STATE_TZ).map(k => `<option ${s.state===k?'selected':''}>${k}</option>`).join('')}</select></label>
+    ${f('county','County','Dallas')}</div>
+    ${s.state && STATE_RULES[s.state] ? `<p class="chip warn">${esc(STATE_RULES[s.state].note)}</p>` : ''}</section>
+  <section class="panel"><h2>Deal math</h2><p class="muted">Max offer = value × buyer % − repairs − your fee.</p><div class="form">
+    ${f('buyerPct','Cash buyers pay (share of value)','0.70','number')}${f('targetFee','Target fee ($)','10000','number')}${f('minFee','Smallest fee worth doing ($)','5000','number')}</div></section>
+  <section class="panel"><h2>Do Not Call list</h2><p class="muted">Paste numbers from your telemarketing.donotcall.gov download. ${S.dnc.size} numbers loaded.</p>
+    <textarea id="dnc-text" placeholder="2145550100&#10;(214) 555-0101"></textarea><div class="row"><button data-act="save-dnc" ${S.canWrite?'':'disabled'}>Add numbers</button></div></section>
+  <section class="panel"><h2>Sample data</h2><div class="row"><button class="danger" data-act="clear-samples" ${S.canWrite?'':'disabled'}>Delete all sample leads and buyers</button></div></section>`;
+}
+
+function render() {
+  const r = route();
+  document.querySelectorAll('#nav a').forEach(a => { if (a.getAttribute('href') === '#' + r) a.setAttribute('aria-current','page'); else a.removeAttribute('aria-current'); });
+  const pend = [...S.batches.values()].filter(b => b.status === 'pending').length;
+  const pc = document.getElementById('pendingCount'); pc.textContent = pend; pc.hidden = !pend;
+  if (S.error && !S.leads.size) { app.innerHTML = `<div class="panel"><h2>Can't reach your saved data</h2><p class="muted">${esc(S.error)}</p></div>`; return; }
+  if (!S.loaded) return;
+  const views = { today:viewToday, leads:viewLeads, approvals:viewApprovals, buyers:viewBuyers, settings:viewSettings };
+  const scrollY = window.scrollY; const focusId = document.activeElement && document.activeElement.id; const caret = document.activeElement && document.activeElement.selectionStart;
+  app.innerHTML = (views[r] || viewToday)();
+  const fs = document.getElementById('f-stage'); if (fs) fs.value = S.filter;
+  if (focusId) { const el = document.getElementById(focusId); if (el) { el.focus(); try { if (caret != null) el.setSelectionRange(caret, caret); } catch {} } }
+  window.scrollTo(0, scrollY);
+}
+
+// ---------- Lead detail ----------
+const dlg = document.getElementById('dlg'); const dlgBody = document.getElementById('dlgBody');
+let openLead = null;
+function showLead(id) {
+  const l = S.leads.get(id); if (!l) return; openLead = id;
+  const a = analyze(l, cfg()); const s = S.settings; const v = vars(l, s, a);
+  const buyers = [...S.buyers.values()].filter(b => (!b.zips || !b.zips.length || b.zips.includes(l.zip)) && (!b.maxPrice || !a.ok || b.maxPrice >= a.buyerPrice));
+  const w = callWindow(l.state);
+  dlgBody.innerHTML = `<div class="row spread"><div><h2>${esc(l.address)}</h2><p class="muted">${esc([l.city,l.state,l.zip].filter(Boolean).join(', '))}${l.caseNumber ? ' · Case ' + esc(l.caseNumber) : ''}${l.sample ? ' · sample data' : ''}</p></div><button data-act="close">Close</button></div>
+  <div class="grid2">
+    <div class="panel"><h2>Who you talk to</h2>
+      <p><b>${esc(l.contactName || 'Executor not on the list')}</b><br><span class="muted">Estate of ${esc(l.ownerName || '—')}</span></p>
+      ${(l.phones||[]).map(p => `<p class="row"><span class="num">${esc(prettyPhone(p))}</span><button data-act="copy" data-text="${esc(p)}">Copy</button></p>`).join('') || '<p class="blocked">No phone yet. Skip trace this name.</p>'}
+      ${l.email ? `<p>${esc(l.email)}</p>` : ''}${l.contactMailing ? `<p class="muted">Mail: ${esc(l.contactMailing)}</p>` : ''}
+      <p class="${w.ok?'muted':'blocked'}">${w.ok ? 'OK to call now' : 'Outside calling hours'} (${hr(w.start)} to ${hr(w.end)} their time)</p>
+      <p class="muted">${esc((l.reasons||[]).join(' · '))}</p></div>
+    <div class="panel"><h2>Deal math</h2>${a.ok ? `<div class="math">
+      <span>Value after repairs</span><span class="num">${usd(a.arv)}</span>
+      <span>× cash buyer ${Math.round(cfg().buyerPct*100)}%</span><span class="num">${usd(a.arv*cfg().buyerPct)}</span>
+      <span>− repairs (${a.bucket})</span><span class="num">−${usd(a.repairs)}</span>
+      <span class="total">Buyer pays you</span><span class="num total">${usd(a.buyerPrice)}</span>
+      <span>− your fee</span><span class="num">−${usd(cfg().targetFee)}</span>
+      <span class="total">Max offer</span><span class="num total">${usd(a.mao)}</span>
+      <span>Open at</span><span class="num">${usd(a.opening)}</span>
+      ${a.fee != null ? `<span class="total">Your fee at their price</span><span class="num total">${usd(a.fee)}</span>` : ''}</div>` : '<p class="blocked">No value on the list. Enter one below.</p>'}
+      ${(a.notes||[]).map(n => `<p class="muted" style="font-size:13px">${esc(n)}</p>`).join('')}
+      <div class="form"><label for="d-ask">Their price<input id="d-ask" type="number" value="${l.askingPrice ?? ''}"></label>
+        <label for="d-arv">Value from comps<input id="d-arv" type="number" value="${l.arvOverride ?? ''}" placeholder="${l.estValue ?? ''}"></label>
+        <label for="d-rep">Repairs from walkthrough<input id="d-rep" type="number" value="${l.repairsOverride ?? ''}" placeholder="${a.repairs}"></label></div>
+      <div class="row"><button data-act="save-deal" ${S.canWrite?'':'disabled'}>Update math</button></div></div>
+  </div>
+  <div class="panel"><h2>Stage</h2><div class="row"><select id="d-stage" style="width:auto">${STAGES.map(st => `<option value="${st}" ${l.stage===st?'selected':''}>${STAGE_LABEL[st]}</option>`).join('')}</select>
+    <input id="d-note" placeholder="What happened on the call" style="flex:1;min-width:180px"><button class="primary" data-act="save-stage" ${S.canWrite?'':'disabled'}>Save</button></div>
+    ${(l.history||[]).length ? `<div class="muted" style="font-size:13px">${[...l.history].reverse().slice(0,6).map(h => `${new Date(h.at).toLocaleDateString()} · ${STAGE_LABEL[h.stage]||h.stage}${h.note ? ': ' + esc(h.note) : ''}`).join('<br>')}</div>` : ''}</div>
+  <div class="panel"><h2>Call script</h2><ol class="script">${SCRIPT.map(([k,t]) => `<li><b>${k}.</b> ${esc(fill(t, v))}</li>`).join('')}</ol></div>
+  <div class="panel"><div class="row spread"><h2>Contract draft</h2><button data-act="copy-contract">Copy</button></div>
+    <p class="muted">Pre-filled at ${a.ok ? (l.askingPrice != null && l.askingPrice <= a.mao ? 'their price' : 'your opening offer') : 'a price you enter'}. Paste into your e-sign app and sign it yourself.</p>
+    <div class="letter" id="contract-text">${esc(contractText(l, s, a.ok ? (l.askingPrice != null && l.askingPrice <= a.mao ? l.askingPrice : a.opening) : null))}</div></div>
+  <div class="panel"><h2>Cash buyers for this house (${buyers.length})</h2>${buyers.length ? buyers.map(b => `<p><b>${esc(b.name)}</b> · <span class="num">${esc(prettyPhone(b.phone))}</span> · up to ${usd(b.maxPrice)}</p>`).join('') : '<p class="muted">No buyer on your list covers this zip and price yet.</p>'}</div>
+  <div class="row"><button class="danger" data-act="delete-lead" ${S.canWrite?'':'disabled'}>Delete lead</button></div>`;
+  if (!dlg.open) dlg.showModal();
+}
+
+function showForm(kind) {
+  if (kind === 'import' || kind === 'import-buyers') {
+    dlgBody.innerHTML = `<div class="row spread"><h2>${kind === 'import' ? 'Import leads' : 'Import cash buyers'}</h2><button data-act="close">Close</button></div>
+      <p class="muted">${kind === 'import' ? 'Pick a CSV from the county clerk, PropStream or DealMachine. Duplicates merge, and a house on a second list scores higher.' : 'Columns: name, phone, email, zips, max price.'}</p>
+      <label for="csv-file">CSV file<input id="csv-file" type="file" accept=".csv,text/csv"></label>
+      ${kind === 'import' ? `<label for="csv-list">List type<input id="csv-list" value="probate"></label>` : ''}
+      <div class="row"><button class="primary" data-act="${kind === 'import' ? 'do-import' : 'do-import-buyers'}">Import</button></div><p id="import-result" class="muted"></p>`;
+  } else if (kind === 'add') {
+    dlgBody.innerHTML = `<div class="row spread"><h2>Add a lead</h2><button data-act="close">Close</button></div><div class="form">
+      ${['address:Property address','city:City','state:State (2 letters)','zip:Zip','ownerName:Owner who passed away','contactName:Executor / heir','phone:Phone','email:Email','estValue:Estimated value','sqft:Square feet','condition:Condition (good, fair, poor)'].map(x => { const [k,l] = x.split(':'); return `<label for="n-${k}">${l}<input id="n-${k}" data-new="${k}"></label>`; }).join('')}
+      </div><div class="row"><button class="primary" data-act="do-add">Add lead</button></div>`;
+  } else if (kind === 'add-buyer') {
+    dlgBody.innerHTML = `<div class="row spread"><h2>Add a cash buyer</h2><button data-act="close">Close</button></div><div class="form">
+      ${['name:Name','phone:Phone','email:Email','zips:Zips they buy (space separated)','maxPrice:Max price'].map(x => { const [k,l] = x.split(':'); return `<label for="b-${k}">${l}<input id="b-${k}" data-buyer-new="${k}"></label>`; }).join('')}
+      </div><div class="row"><button class="primary" data-act="do-add-buyer">Add buyer</button></div>`;
+  }
+  if (!dlg.open) dlg.showModal();
+}
+
+function leadFromRaw(raw, m, defaults) {
+  const g = (f) => m[f] ? raw[m[f]] : undefined;
+  const l = { address: g('address') || '', city: g('city') || '', state: String(g('state') || defaults.state || '').toUpperCase().slice(0,2), zip: String(g('zip') || '').slice(0,5),
+    ownerName: g('ownerName') || '', contactName: g('contactName') || '', contactMailing: g('contactMailing') || '',
+    phones: [normPhone(g('phone')), normPhone(g('phone2'))].filter(Boolean), email: g('email') || '',
+    beds: num(g('beds')), baths: num(g('baths')), sqft: num(g('sqft')), yearBuilt: num(g('yearBuilt')), estValue: num(g('estValue')), assessedValue: num(g('assessedValue')),
+    mortgageBalance: num(g('mortgageBalance')), taxOwed: num(g('taxOwed')), condition: (g('condition') || '').toLowerCase(), vacant: yes(g('vacant')),
+    listType: (g('listType') || defaults.listType || 'probate').toLowerCase(), caseNumber: g('caseNumber') || '', filingDate: g('filingDate') || '' };
+  l.id = leadId(l.address, l.zip); Object.assign(l, scoreLead(l));
+  return l;
+}
+
+async function importLeads(text, listType) {
+  const rows = parseCsv(text); if (!rows.length) return 'That file has no rows.';
+  const m = mapCols(Object.keys(rows[0])); if (!m.address) return 'Could not find an address column. Rename it to "Property Address" and try again.';
+  let added = 0, merged = 0, skipped = 0;
+  for (const raw of rows) {
+    const l = leadFromRaw(raw, m, { listType, state: S.settings.state });
+    if (!l.address) { skipped++; continue; }
+    const prev = S.leads.get(l.id);
+    if (prev) {
+      const lt = prev.listType.includes(l.listType) ? prev.listType : prev.listType + ';' + l.listType;
+      const phones = [...new Set([...(prev.phones||[]), ...l.phones])];
+      const sc = scoreLead({ ...prev, listType: lt, phones });
+      await write('leads/' + l.id, { listType: lt, phones, score: sc.score, reasons: sc.reasons }, true); merged++;
+    } else {
+      if (await write('leads/' + l.id, { ...l, stage: 'new', createdAt: new Date().toISOString(), history: [] })) added++;
+    }
+  }
+  return `Added ${added}, merged ${merged} duplicates, skipped ${skipped} rows without an address.`;
+}
+
+async function draftToday() {
+  const s = S.settings; const now = new Date().toISOString(); const made = [];
+  const mk = async (channel, leads, label) => {
+    const items = [], excluded = [];
+    for (const l of leads) { const c = checkSend(l, channel, S.optouts, S.dnc);
+      if (!c.ok) { excluded.push({ leadId: l.id, address: l.address, reasons: c.blocks }); continue; }
+      const a = analyze(l, cfg()); items.push({ leadId: l.id, to: channel === 'sms' ? l.phones[0] : channel === 'email' ? l.email : (l.contactMailing || l.address), name: l.contactName || l.ownerName, body: fill(TPL[channel], vars(l, s, a)), warns: c.warns }); }
+    if (!items.length && !excluded.length) return;
+    const id = 'B' + Date.now().toString(36) + channel;
+    const b = { id, channel, label, items, excluded, status: items.length ? 'pending' : 'empty', createdAt: now };
+    if (await write('batches/' + id, b)) made.push(b);
+    return b;
+  };
+  const fresh = [...S.leads.values()].filter(l => l.stage === 'new' && !l.letterBatch && analyze(l, cfg()).grade !== 'Pass');
+  if (fresh.length) { const b = await mk('mail', fresh, `Sympathy letters to ${fresh.length} new estates`); if (b) for (const l of fresh) await write('leads/' + l.id, { letterBatch: b.id }, true); }
+  const due = [...S.leads.values()].filter(l => followUpDue(l) && !l.pendingFollowUp);
+  const byEmail = due.filter(l => l.email), bySms = due.filter(l => !l.email && (l.phones||[]).length), byMail = due.filter(l => !l.email && !(l.phones||[]).length);
+  for (const [ch, list, lab] of [['email', byEmail, 'Follow-up emails'], ['sms', bySms, 'Follow-up texts'], ['mail', byMail, 'Follow-up letters']]) {
+    if (!list.length) continue; const b = await mk(ch, list, `${lab} (${list.length})`);
+    if (b) for (const l of list) await write('leads/' + l.id, { pendingFollowUp: b.id }, true);
+  }
+  toast(made.length ? `Drafted ${made.length} batch${made.length>1?'es':''}. Review them in Approvals.` : 'Nothing new to draft today.');
+  if (made.length) location.hash = '#approvals';
+}
+
+async function approve(id) {
+  const b = S.batches.get(id); if (!b || b.status !== 'pending') return;
+  if (!(await write('batches/' + id, { status: 'approved', approvedAt: new Date().toISOString() }, true))) return;
+  for (const i of b.items) { const l = S.leads.get(i.leadId); if (!l) continue;
+    const stage = l.stage === 'new' ? 'contacted' : l.stage;
+    const history = [...(l.history||[]), { at: new Date().toISOString(), stage: l.stage === 'new' ? 'contacted' : 'followup', note: b.channel + ' approved' }];
+    await write('leads/' + l.id, { stage, history, pendingFollowUp: null }, true); }
+  toast(`Approved. Copy the ${b.channel === 'mail' ? 'letters to print' : 'messages'} from Approvals.`);
+}
+
+// ---------- Events ----------
+document.addEventListener('click', async (e) => {
+  const t = e.target.closest('[data-act],[data-open]'); if (!t) return;
+  if (t.dataset.open && !t.dataset.act) { showLead(t.dataset.open); return; }
+  const act = t.dataset.act; const l = openLead && S.leads.get(openLead);
+  if (act === 'close') { dlg.close(); openLead = null; }
+  else if (act === 'draft-today') { t.disabled = true; await draftToday(); }
+  else if (act === 'approve') { t.disabled = true; await approve(t.dataset.id); }
+  else if (act === 'reject') { await write('batches/' + t.dataset.id, { status: 'rejected' }, true); const b = S.batches.get(t.dataset.id);
+    for (const i of (b && b.items) || []) { const ld = S.leads.get(i.leadId); if (ld && (ld.letterBatch === b.id || ld.pendingFollowUp === b.id)) await write('leads/' + ld.id, { letterBatch: null, pendingFollowUp: null }, true); } toast('Rejected'); }
+  else if (act === 'copy-batch') { const b = S.batches.get(t.dataset.id); copy(b.items.map(i => `TO: ${i.name} — ${i.to}\n\n${i.body}`).join('\n\n----------\n\n')); }
+  else if (act === 'copy') copy(t.dataset.text);
+  else if (act === 'copy-contract') copy(document.getElementById('contract-text').textContent);
+  else if (act === 'import' || act === 'add' || act === 'import-buyers' || act === 'add-buyer') showForm(act);
+  else if (act === 'do-import' || act === 'do-import-buyers') {
+    const f = document.getElementById('csv-file').files[0]; const out = document.getElementById('import-result');
+    if (!f) { out.textContent = 'Pick a CSV file first.'; return; }
+    t.disabled = true; out.textContent = 'Importing…'; const text = await f.text();
+    if (act === 'do-import') out.textContent = await importLeads(text, document.getElementById('csv-list').value || 'probate');
+    else { const rows = parseCsv(text); let n = 0; for (const r of rows) { const g = (...ks) => { for (const k of Object.keys(r)) if (ks.includes(key(k))) return r[k]; return ''; };
+      const b = { name: g('name','buyer','company'), phone: normPhone(g('phone','mobile')), email: g('email'), zips: String(g('zips','zip codes','zip','areas')).split(/[\s;,]+/).filter(Boolean), maxPrice: num(g('max price','max_price','budget')) };
+      if (b.name && await write('buyers/' + leadId(b.name, b.phone || ''), b)) n++; } out.textContent = `Added ${n} buyers.`; }
+    t.disabled = false;
+  }
+  else if (act === 'do-add') { const v = {}; document.querySelectorAll('[data-new]').forEach(i => v[i.dataset.new] = i.value.trim());
+    if (!v.address) { toast('Add the property address.'); return; }
+    const raw = { 'Property Address': v.address, City: v.city, State: v.state, Zip: v.zip, 'Decedent Name': v.ownerName, 'Personal Representative': v.contactName, Phone: v.phone, Email: v.email, 'Estimated Value': v.estValue, Sqft: v.sqft, Condition: v.condition };
+    const ld = leadFromRaw(raw, mapCols(Object.keys(raw)), { listType: 'probate', state: S.settings.state });
+    if (await write('leads/' + ld.id, { ...ld, stage: 'new', createdAt: new Date().toISOString(), history: [] })) { dlg.close(); toast('Lead added'); } }
+  else if (act === 'do-add-buyer') { const v = {}; document.querySelectorAll('[data-buyer-new]').forEach(i => v[i.dataset.buyerNew] = i.value.trim());
+    if (!v.name) { toast('Add a name.'); return; }
+    const b = { name: v.name, phone: normPhone(v.phone), email: v.email, zips: v.zips.split(/[\s;,]+/).filter(Boolean), maxPrice: num(v.maxPrice) };
+    if (await write('buyers/' + leadId(b.name, b.phone || ''), b)) { dlg.close(); toast('Buyer added'); } }
+  else if (act === 'save-stage' && l) { await setStage(l, document.getElementById('d-stage').value, document.getElementById('d-note').value.trim()); toast('Saved'); }
+  else if (act === 'save-deal' && l) { await write('leads/' + l.id, { askingPrice: num(document.getElementById('d-ask').value), arvOverride: num(document.getElementById('d-arv').value), repairsOverride: num(document.getElementById('d-rep').value) }, true); toast('Math updated'); }
+  else if (act === 'delete-lead' && l) { if (t.dataset.confirm) { await remove('leads/' + l.id); dlg.close(); openLead = null; toast('Lead deleted'); } else { t.dataset.confirm = '1'; t.textContent = 'Tap again to delete for good'; } }
+  else if (act === 'save-dnc') { const txt = document.getElementById('dnc-text').value; const found = [...txt.matchAll(/(?:\+?1[\s.-]?)?\(?(\d{3})\)?[\s.-]?(\d{3})[\s.-]?(\d{4})/g)].map(m => '+1' + m[1] + m[2] + m[3]);
+    const all = [...new Set([...S.dnc, ...found])]; if (await write('settings/dnc', { numbers: all })) toast(`Added ${found.length} numbers`); }
+  else if (act === 'clear-samples') { if (t.dataset.confirm) { for (const ld of S.leads.values()) if (ld.sample) await remove('leads/' + ld.id); for (const b of S.buyers.values()) if (b.sample) await remove('buyers/' + b.id); toast('Sample data deleted'); }
+    else { t.dataset.confirm = '1'; t.textContent = 'Tap again to delete all sample data'; } }
+});
+let settingsTimer;
+document.addEventListener('input', (e) => {
+  if (e.target.id === 'f-q') { S.q = e.target.value; render(); }
+  if (e.target.dataset.set) { const k = e.target.dataset.set; S.settings[k] = ['buyerPct','targetFee','minFee'].includes(k) ? Number(e.target.value) : e.target.value;
+    clearTimeout(settingsTimer); settingsTimer = setTimeout(() => write('settings/main', { ...S.settings }), 700); }
+});
+document.addEventListener('change', (e) => {
+  if (e.target.id === 'f-stage') { S.filter = e.target.value; render(); }
+  if (e.target.id === 's-state') { S.settings.state = e.target.value; write('settings/main', { ...S.settings }); render(); }
+});
+dlg.addEventListener('close', () => { openLead = null; });
+window.addEventListener('hashchange', render);
+
+// ---------- Data ----------
+function rerender() { if (openLead && dlg.open && S.leads.has(openLead) && !dlgBody.contains(document.activeElement)) showLead(openLead); render(); }
+(async () => {
+  const timer = setTimeout(() => { if (!S.loaded) { S.error = 'Your saved leads could not be reached yet. Check your connection; this page keeps trying.'; render(); } }, 10000);
+  let db = null; try { db = await claude.use('db'); } catch {}
+  try { const user = await claude.use('user'); if (user) { const c = await user.can('data.write'); if (c === false) S.canWrite = false; } } catch {}
+  if (!db) { clearTimeout(timer); S.error = 'Open this page while signed in to claude.ai to load and save your leads.'; S.loaded = true; render(); return; }
+  S.db = db; let pending = 3;
+  const ready = () => { if (--pending <= 0 && !S.loaded) { S.loaded = true; clearTimeout(timer); S.error = null; } rerender(); };
+  const sub = (coll, into, done) => { let first = true; db.collection(coll).onSnapshot(snap => { into.clear(); snap.docs.forEach(d => into.set(d.id, { ...d.data(), id: d.id })); if (first && !snap.metadata.fromCache) { first = false; done(); } else rerender(); },
+    err => { S.error = 'Saved data stopped updating (' + err.code + '). Reload the page.'; if (first) { first = false; done(); } else render(); }); };
+  sub('leads', S.leads, ready); sub('batches', S.batches, ready);
+  db.collection('settings').onSnapshot(snap => { snap.docs.forEach(d => { const v = d.data(); if (d.id === 'main') S.settings = { ...DEFAULT_SETTINGS, ...v }; if (d.id === 'dnc') S.dnc = new Set(v.numbers || []); }); rerender(); }, () => {});
+  db.collection('buyers').onSnapshot(snap => { S.buyers.clear(); snap.docs.forEach(d => S.buyers.set(d.id, { ...d.data(), id: d.id })); rerender(); }, () => {});
+  db.collection('optouts').onSnapshot(snap => { S.optouts = new Set(snap.docs.map(d => d.data().phone)); rerender(); }, () => {});
+  setTimeout(ready, 0);
+})();
+render();
+</script>
