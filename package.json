@@ -1,6 +1,9 @@
 {
   "scripts": {
-    "dev": "node server.js"
+    "dev": "node server.js",
+    "deals": "node deal-engine/server.js",
+    "deals:cli": "node deal-engine/cli.js",
+    "deals:test": "node --test deal-engine/test/engine.test.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
