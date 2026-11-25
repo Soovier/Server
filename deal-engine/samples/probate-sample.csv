@@ -1,0 +1,5 @@
+Case Number,Filing Date,Decedent Name,Personal Representative,PR Address,Property Address,City,State,Zip,Phone,Email,Beds,Baths,Sqft,Year Built,Estimated Value,Mortgage Balance,Condition,Vacant,List Type
+2026-PR-0101,2026-10-02,Harold Jenkins,Linda Jenkins,"88 Oak Ridge Dr, Phoenix AZ 85001",1412 Elm Street,Dallas,TX,75216,(214) 555-0143,linda@example.com,3,2,1450,1962,198000,0,fair,Y,probate
+2026-PR-0102,2026-10-05,Mae Collins,Robert Collins,"12 Lake Ave, Tulsa OK 74103",77 Pine Avenue,Dallas,TX,75217,214-555-0177,,2,1,980,1948,142000,35000,poor,Y,probate;tax delinquent
+2026-PR-0103,2026-10-11,George Patel,Anita Patel,"1412 Elm Street, Dallas TX 75216",3301 Maple Rd,Dallas,TX,75228,,anita@example.com,4,2,2100,1985,265000,190000,good,N,probate
+2026-PR-0104,2026-10-15,Ruth Alvarez,,,"910 Cedar Ln",Dallas,TX,75216,(214) 555-0199,,3,1,1200,,175000,,,,probate
