@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Sources</h1>
+<div class="grid">
+  <form class="card" method="post" action="/sources">
+    <b>Add a video or stream URL</b>
+    <label>Twitch VOD, YouTube, Kick, or any link yt-dlp supports</label><input name="url" required>
+    <label>Campaign (sets permission and rules)</label>
+    <select name="campaign_id"><option value="">None</option>{% for c in camps %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}</select>
+    <p><button>Add</button></p>
+  </form>
+  <form class="card" method="post" action="/sources/permitted">
+    <b>Streamers who've given you permission</b>
+    <label>Comma-separated names. Clips from these can be auto-approved even without a campaign.</label>
+    <input name="permitted" value="{{ permitted }}">
+    <p><button class="ghost">Save</button></p>
+    <p class="muted">Watching on Twitch: {{ twitch|join(', ') or 'none (set TWITCH_STREAMERS)' }}<br>
+      YouTube channels: {{ yt|join(', ') or 'none (set YOUTUBE_SOURCE_CHANNEL_IDS)' }}</p>
+  </form>
+</div>
+<h2>Found sources</h2>
+<div class="card" style="overflow-x:auto">
+<table>
+  <tr><th>Found</th><th>Platform</th><th>Streamer</th><th>Title</th><th>Campaign</th><th>Status</th></tr>
+  {% for s in sources %}
+  <tr><td>{{ s.found_at|local }}</td><td>{{ s.platform }}</td><td>{{ s.streamer or '' }}</td>
+    <td><a href="{{ s.url }}" target="_blank" rel="noopener">{{ (s.title or s.url)[:70] }}</a></td>
+    <td>{{ s.campaign or '' }}</td>
+    <td><span class="tag {{ 'bad' if s.status=='failed' else ('good' if s.status=='clipped' else '') }}">{{ s.status }}</span>{% if s.error %}<div class="muted">{{ s.error[:160] }}</div>{% endif %}</td></tr>
+  {% else %}
+  <tr><td colspan="6" class="muted">No sources yet.</td></tr>
+  {% endfor %}
+</table>
+</div>
+{% endblock %}

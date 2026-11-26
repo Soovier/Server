@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Schedule</h1>
+<div class="row">
+  <form method="post" action="/jobs/pipeline"><button>Find + clip now</button></form>
+  <form method="post" action="/jobs/publish"><button class="ghost">Publish due posts</button></form>
+  <form method="post" action="/jobs/analytics"><button class="ghost">Refresh analytics</button></form>
+  <form method="post" action="/settings/pause"><input type="hidden" name="paused" value="{{ '0' if paused else '1' }}">
+    <button class="{{ 'good' if paused else 'bad' }}">{{ 'Resume everything' if paused else 'Pause everything' }}</button></form>
+</div>
+<p class="muted">Daily posting slots ({{ tz }}): {{ slots|join(', ') }}. Change them with POST_SLOTS in .env.</p>
+
+<h2>Upcoming posts</h2>
+<div class="card" style="overflow-x:auto">
+<table>
+  <tr><th>When</th><th>Channel</th><th>Clip</th><th>Status</th><th>Actions</th></tr>
+  {% for p in posts %}
+  <tr>
+    <td>{{ p.scheduled_at|local }}</td>
+    <td><span class="tag {{ p.platform }}">{{ p.platform }}</span></td>
+    <td>#{{ p.clip_id }} {{ p.hook }}</td>
+    <td><span class="tag {{ 'bad' if p.status=='failed' else '' }}">{{ p.status }}</span>{% if p.error %}<div class="muted" style="max-width:320px">{{ p.error[:200] }}</div>{% endif %}</td>
+    <td>
+      <form method="post" action="/schedule/{{ p.id }}" class="row">
+        <input type="datetime-local" name="when" style="width:200px">
+        <button class="ghost" name="action" value="move">Move</button>
+        <button class="ghost" name="action" value="now">Post now</button>
+        <button class="bad" name="action" value="cancel">Cancel</button>
+      </form>
+    </td>
+  </tr>
+  {% else %}
+  <tr><td colspan="5" class="muted">Nothing scheduled. Approve clips in Review.</td></tr>
+  {% endfor %}
+</table>
+</div>
+
+<h2>Recent runs</h2>
+<div class="card" style="overflow-x:auto">
+<table>
+  <tr><th>Job</th><th>Started</th><th>Result</th></tr>
+  {% for j in jobs %}
+  <tr><td>{{ j.job }}</td><td>{{ j.started_at|local }}</td>
+      <td><span class="tag {{ 'good' if j.ok else ('bad' if j.ok == 0 else '') }}">{{ 'ok' if j.ok else ('failed' if j.ok == 0 else 'running') }}</span> <span class="muted">{{ (j.message or '')[:160] }}</span></td></tr>
+  {% endfor %}
+</table>
+</div>
+{% endblock %}

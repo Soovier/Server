@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Content Rewards campaigns</h1>
+
+<h2>Ready to submit</h2>
+<div class="card" style="overflow-x:auto">
+<table>
+  <tr><th>Campaign</th><th>Post</th><th>Time left</th><th></th></tr>
+  {% for s in pending %}
+  <tr>
+    <td>{{ s.campaign }}</td>
+    <td><span class="tag {{ s.platform }}">{{ s.platform }}</span> <a href="{{ s.permalink }}" target="_blank" rel="noopener">{{ s.permalink }}</a></td>
+    <td>{% if s.late %}<span class="tag bad">past 30 min</span>{% else %}<span class="tag warn">{{ s.minutes_left }} min</span>{% endif %}</td>
+    <td class="row">
+      <button type="button" onclick="submitAssist('{{ s.permalink }}','{{ s.campaign_url }}')">1-click submit</button>
+      <form method="post" action="/submissions/{{ s.id }}"><input type="hidden" name="status" value="submitted"><button class="ghost">Mark submitted</button></form>
+    </td>
+  </tr>
+  {% else %}
+  <tr><td colspan="4" class="muted">Nothing waiting. When a campaign clip goes live it appears here, and you get an alert if NOTIFY_WEBHOOK_URL is set.</td></tr>
+  {% endfor %}
+</table>
+<p class="muted">"1-click submit" copies the post link and opens the campaign page; paste it into Content Rewards' submit box. Content Rewards has no API and doesn't allow posting on your behalf, so the final click stays yours.</p>
+</div>
+
+<h2>Earnings</h2>
+<div class="card" style="overflow-x:auto">
+<table>
+  <tr><th>Campaign</th><th>Submitted</th><th>Views</th><th>Rate / 1K</th><th>Estimated</th><th>Paid</th><th></th></tr>
+  {% for e in earnings %}
+  <tr><td>{{ e.name }}</td><td>{{ e.live or 0 }}</td><td>{{ e.views|num }}</td><td>{{ e.rate_per_1k|money }}</td>
+      <td>{{ e.estimated|money }}{% if e.max_payout %} <span class="muted">(cap {{ e.max_payout|money }})</span>{% endif %}</td>
+      <td>{{ e.paid|money }}</td>
+      <td><form method="post" action="/campaigns/{{ e.id }}/toggle"><button class="ghost">on/off</button></form></td></tr>
+  {% endfor %}
+</table>
+</div>
+
+<h2>Submission history</h2>
+<div class="card" style="overflow-x:auto">
+<table>
+  <tr><th>Campaign</th><th>Post</th><th>Status</th><th>Update</th></tr>
+  {% for h in history %}
+  <tr><td>{{ h.campaign }}</td><td><a href="{{ h.permalink }}" target="_blank" rel="noopener">{{ h.platform }}</a></td>
+      <td><span class="tag">{{ h.status }}</span> {% if h.payout_usd %}{{ h.payout_usd|money }}{% endif %}</td>
+      <td><form method="post" action="/submissions/{{ h.id }}" class="row">
+        <select name="status" style="width:120px">{% for st in ['submitted','approved','rejected','paid'] %}<option {{ 'selected' if st==h.status }}>{{ st }}</option>{% endfor %}</select>
+        <input name="payout" placeholder="$ paid" style="width:90px"><button class="ghost">Save</button></form></td></tr>
+  {% endfor %}
+</table>
+</div>
+
+<h2>Add a campaign</h2>
+<form class="card" method="post" action="/campaigns">
+  <div class="grid">
+    <div><label>Name</label><input name="name" required></div>
+    <div><label>Campaign page URL (Content Rewards)</label><input name="url" required placeholder="https://contentrewards.com/..."></div>
+    <div><label>$ per 1,000 views</label><input name="rate_per_1k" type="number" step="0.01" value="0"></div>
+    <div><label>Max payout per clip ($, 0 = none)</label><input name="max_payout" type="number" step="0.01" value="0"></div>
+  </div>
+  <label>Source footage URLs the campaign allows (one per line; these get auto-clipped)</label>
+  <textarea name="source_urls" rows="3"></textarea>
+  <label>Campaign rules (the AI follows these when choosing moments and writing captions)</label>
+  <textarea name="rules" rows="3"></textarea>
+  <div class="grid">
+    <div><label>Required hashtags / mentions</label><input name="required_tags" placeholder="#ad @brand"></div>
+    <div><label>Platforms the campaign pays for</label>
+      <div class="row">{% for p in ['instagram','facebook','youtube'] %}<label class="switch"><input type="checkbox" name="platforms" value="{{ p }}" style="width:auto" {{ 'checked' if p!='facebook' }}> {{ p }}</label>{% endfor %}</div></div>
+  </div>
+  <p><button>Add campaign</button></p>
+</form>
+
+<script>
+async function submitAssist(link, campaignUrl) {
+  try { await navigator.clipboard.writeText(link); } catch (e) {}
+  window.open(campaignUrl, '_blank', 'noopener');
+}
+</script>
+{% endblock %}

@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="row" style="justify-content:space-between">
+  <h1>Review queue <span class="muted">({{ clips|length }})</span></h1>
+  <form method="post" action="/settings/auto-approve" class="card row" style="padding:10px 14px">
+    <label class="switch" style="margin:0"><input type="checkbox" name="enabled" value="1" style="width:auto" {{ 'checked' if auto_approve }}> Auto-approve</label>
+    <label style="margin:0">min score</label><input name="min_score" value="{{ min_score }}" style="width:70px">
+    <button class="ghost">Save</button>
+  </form>
+</div>
+<p class="muted">Approved clips are scheduled into your next open posting slots. Auto-approve only applies to clips from a campaign or a streamer you've marked as giving permission (Sources page); others always wait here.</p>
+
+<div class="clips">
+{% for c in clips %}
+  <form class="card clip" method="post" action="/review/{{ c.id }}">
+    {% if c.video_path %}<video src="/media/clips/clip_{{ c.id }}.mp4" controls preload="metadata" {% if c.thumb_path %}poster="/media/clips/clip_{{ c.id }}.jpg"{% endif %}></video>{% endif %}
+    <div class="row" style="margin-top:8px">
+      <span class="tag">score {{ c.score }}</span>
+      <span class="tag">{{ '%.0f'|format(c.end_s - c.start_s) }}s</span>
+      {% if c.campaign %}<span class="tag good">{{ c.campaign }}</span>{% endif %}
+      {% if not c.permitted %}<span class="tag warn" title="Not from a campaign or permitted streamer">needs permission</span>{% endif %}
+    </div>
+    <div class="muted" style="margin-top:6px">{{ c.streamer }} · <a href="{{ c.source_url }}" target="_blank" rel="noopener">{{ (c.source_title or '')[:60] }}</a> @ {{ '%d:%02d'|format(c.start_s//60, c.start_s%60) }}</div>
+    <label>On-screen hook</label><input name="hook" value="{{ c.hook or '' }}">
+    <label>Caption</label><textarea name="caption" rows="2">{{ c.caption or '' }}</textarea>
+    <label>Hashtags</label><input name="hashtags" value="{{ c.hashtags or '' }}">
+    {% if c.transcript %}<details><summary class="muted">Transcript</summary><p class="muted">{{ c.transcript }}</p></details>{% endif %}
+    <div class="row" style="margin-top:12px">
+      <button class="good" name="action" value="approve">Approve + schedule</button>
+      <button class="ghost" name="action" value="save">Save</button>
+      <button class="bad" name="action" value="reject">Reject</button>
+    </div>
+  </form>
+{% else %}
+  <div class="card muted">Nothing to review. New clips show up here after each scheduled run, or press "Find + clip now" on the Schedule page.</div>
+{% endfor %}
+</div>
+{% endblock %}
