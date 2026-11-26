@@ -1,0 +1,12 @@
+fastapi>=0.110
+uvicorn>=0.29
+jinja2>=3.1
+python-multipart>=0.0.9
+httpx>=0.27
+apscheduler>=3.10,<4
+python-dotenv>=1.0
+yt-dlp>=2025.1.1
+# Local, free speech-to-text for captions and moment detection
+faster-whisper>=1.0
+# Finds the streamer's facecam for the facecam-over-gameplay layout (optional)
+opencv-python-headless>=4.9,<5  # 5.x dropped the face detector this uses

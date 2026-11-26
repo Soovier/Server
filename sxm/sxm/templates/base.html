@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="sxm-version" content="{{ asset_v }}">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="view-transition" content="same-origin">
+  <title>SXM</title>
+  <link rel="icon" href="/static/logo.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=Inter:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="/static/style.css?v={{ asset_v }}">
+  <script src="/static/chart.umd.js?v={{ asset_v }}"></script>
+  <script src="/static/analytics.js?v={{ asset_v }}" defer></script>
+  <script src="/static/studio.js?v={{ asset_v }}" defer></script>
+  <script src="/static/app.js?v={{ asset_v }}" defer></script>
+</head>
+<body>
+<div id="progress" aria-hidden="true"></div>
+<header>
+  <a class="brand" href="/"><img src="/static/logo.svg" alt=""><span><b>SXM</b><small>STUDIO</small></span></a>
+  <nav>
+    <a href="/" class="{{ 'on' if nav=='home' }}"><i>🏠</i>Home</a>
+    <a href="/streams" class="{{ 'on' if nav=='streams' }}"><i>🔴</i>Streams</a>
+    <a href="/trending" class="{{ 'on' if nav=='trending' }}"><i>🔥</i>Trending</a>
+    <a href="/import" class="{{ 'on' if nav=='import' }}"><i>📥</i>Import</a>
+    <a href="/review" class="{{ 'on' if nav=='review' }}"><i>🎬</i>Review{% if pending_count %}<span class="pill">{{ pending_count }}</span>{% endif %}</a>
+    <a href="/inventory" class="{{ 'on' if nav in ('inventory','schedule') }}"><i>📦</i>Inventory</a>
+    <a href="/downloads" class="{{ 'on' if nav=='downloads' }}"><i>⬇️</i>Downloads</a>
+    <a href="/analytics" class="{{ 'on' if nav in ('analytics','stats') }}"><i>📈</i>Analytics</a>
+    <a href="/campaigns" class="{{ 'on' if nav=='campaigns' }}"><i>💰</i>Campaigns{% if submit_count %}<span class="pill">{{ submit_count }}</span>{% endif %}</a>
+    <a href="/sources" class="{{ 'on' if nav=='sources' }}"><i>🎮</i>Streamers</a>
+    <a href="/setup" class="{{ 'on' if nav=='setup' }}"><i>🔌</i>Connect</a>
+  </nav>
+  <div class="status">
+    {% if paused %}<span class="tag warn">Paused</span>{% else %}<span class="tag good"><i class="dot"></i>Running</span>{% endif %}
+    <span class="tag {{ 'good' if auto_approve else '' }}">Auto-approve {{ 'ON' if auto_approve else 'OFF' }}</span>
+  </div>
+</header>
+<main id="main">
+{% if submit_count %}
+  <div class="notice">⏱ {{ submit_count }} campaign post{{ 's' if submit_count > 1 }} waiting to be submitted. Campaigns want the link within 30 minutes of posting. <a href="/campaigns">Submit now</a></div>
+{% endif %}
+{% block content %}{% endblock %}
+</main>
+<div id="toasts" role="status" aria-live="polite"></div>
+</body>
+</html>

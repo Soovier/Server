@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="hero">
+  <div>
+    <h1 class="hello">{{ hello }}{% if owner %}, {{ owner }}{% endif %} <span class="wave">👋</span></h1>
+    <p class="lead">
+      {% if h.paused %}<span class="live off"></span> SXM is <b>paused</b>. Nothing will be found or posted.
+      {% else %}<span class="live"></span> SXM is <b>running</b>{% if h.last_run %} · last ran {{ h.last_run.ago }}{% endif %}{% if h.upcoming %} · next post <b>{{ h.upcoming[0].in }}</b>{% endif %}.{% endif %}
+    </p>
+  </div>
+  <div class="hero-actions">
+    <form method="post" action="/jobs/pipeline"><input type="hidden" name="back" value="/"><button class="big" data-confetti>⚡ Find + clip now</button></form>
+    <form method="post" action="/settings/pause"><input type="hidden" name="back" value="/"><input type="hidden" name="paused" value="{{ '0' if h.paused else '1' }}">
+      <button class="big ghost">{{ 'Resume' if h.paused else 'Pause' }}</button></form>
+  </div>
+</section>
+
+{% if h.steps_done < h.steps_total %}
+<section class="card setup-card reveal">
+  <div class="setup-head">
+    <svg class="ring" viewBox="0 0 44 44" data-ring="{{ h.steps_done / h.steps_total }}"><circle cx="22" cy="22" r="19"/><circle class="fg" cx="22" cy="22" r="19"/></svg>
+    <div><h2 class="plain">Get set up</h2><p class="muted">{{ h.steps_done }} of {{ h.steps_total }} must-do steps done. Do them top to bottom.</p></div>
+  </div>
+  <ol class="steps">
+    {% for st in h.steps %}
+    <li class="step {{ 'done' if st.done }} {{ 'optional' if st.optional }}" style="--i:{{ loop.index }}">
+      <span class="check">{% if st.done %}✓{% else %}{{ loop.index }}{% endif %}</span>
+      <div class="step-text"><span class="step-title"><b>{{ st.title }}</b>{% if st.optional %}<span class="tag">optional</span>{% endif %}</span>
+        <span class="muted small">{{ st.detail if st.done and st.detail else st.why }}</span></div>
+      {% if not st.done %}<a class="btn {{ 'ghost' if st.optional }}" href="{{ st.action }}" {% if st.action.startswith('/oauth') %}data-no-boost{% endif %}>{{ st.cta }} →</a>{% endif %}
+    </li>
+    {% endfor %}
+  </ol>
+</section>
+{% endif %}
+
+<section class="reveal">
+  <h2>To do</h2>
+  {% if h.todos %}
+  <div class="todos">
+    {% for t in h.todos %}
+    <a class="todo {{ t.tone }}" href="{{ t.href }}" style="--i:{{ loop.index }}">
+      <span class="todo-icon">{{ t.icon }}</span>
+      <span class="todo-text"><b>{{ t.title }}</b><span class="muted small">{{ t.sub }}</span></span>
+      <span class="btn">{{ t.cta }} →</span>
+    </a>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="card caught-up"><span class="big-emoji">✨</span><div><b>You're all caught up.</b><div class="muted">SXM will find, clip and post on its own. New clips show up here.</div></div></div>
+  {% endif %}
+</section>
+
+<section class="reveal">
+  <div class="row" style="justify-content:space-between">
+    <h2>Your stats <a class="small" href="/analytics" style="text-transform:none;letter-spacing:0">full analytics →</a></h2>
+    <div class="seg">
+      {% for d in [7, 30, 90] %}<a href="/?days={{ d }}" class="{{ 'on' if h.days == d }}">{{ d }} days</a>{% endfor %}
+    </div>
+  </div>
+  <div class="stats" id="stats">
+    {% for st in h.stats %}
+    <div class="card stat" style="--i:{{ loop.index }}">
+      <div class="stat-label">{{ st.label }}</div>
+      <div class="stat-value" data-count="{{ st.value }}" data-fmt="{{ st.fmt }}" data-key="{{ st.key }}">0</div>
+      {% if st.delta is not none %}<span class="delta {{ 'pos' if st.delta >= 0 else 'neg' }}">{{ '▲' if st.delta >= 0 else '▼' }} {{ st.delta|abs }}%</span>
+      {% elif st.sub %}<span class="delta muted">{{ st.sub }}</span>
+      {% else %}<span class="delta muted">last {{ h.days }} days</span>{% endif %}
+      {% if st.key == 'views' %}<svg class="spark" viewBox="0 0 100 28" preserveAspectRatio="none" data-spark="{{ h.spark|tojson }}"></svg>{% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% if h.channels %}
+  <div class="chips">
+    {% for c in h.channels %}
+    <a class="chip {{ c.platform }}" href="/analytics?ch={{ c.id }}">
+      {% if c.avatar %}<img src="{{ c.avatar }}" alt="" referrerpolicy="no-referrer">{% else %}<span class="ph">{{ c.name[:1] }}</span>{% endif %}
+      <span>{{ c.name }}</span><b data-count="{{ c.subscribers }}" data-fmt="num">0</b><span class="muted small">subs</span>
+      <b data-count="{{ c.views }}" data-fmt="num">0</b><span class="muted small">views</span>
+    </a>
+    {% endfor %}
+  </div>
+  {% endif %}
+</section>
+
+<section class="reveal">
+  <h2>How your clips are moving</h2>
+  <div class="flow card">
+    {% for p in h.pipeline %}
+    <a class="node {{ 'busy' if p.n }}" href="{{ {'find':'/sources','clip':'/review','review':'/review','post':'/schedule','live':'/analytics'}[p.key] }}" title="{{ p.hint }}">
+      <span class="node-icon">{{ p.icon }}</span>
+      <b data-count="{{ p.n }}" data-fmt="num">0</b>
+      <span class="small muted">{{ p.label }}</span>
+    </a>
+    {% if not loop.last %}<span class="pipe"><i></i></span>{% endif %}
+    {% endfor %}
+  </div>
+</section>
+
+<section class="reveal">
+  <h2>Up next</h2>
+  {% if h.upcoming %}
+  <ul class="timeline card">
+    {% for u in h.upcoming %}
+    <li>
+      <span class="t-dot {{ u.platform }}"></span>
+      {% if u.thumb_path %}<img class="t-thumb" src="/media/clips/clip_{{ u.clip_id }}.jpg" alt="">{% endif %}
+      <div class="t-text"><b>{{ u.hook or ('Clip #' ~ u.clip_id) }}</b><span class="muted small">{{ u.channel_name or u.platform }} · {{ u.when }}</span></div>
+      <span class="tag">{{ u.in }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <div class="card muted">Nothing lined up yet. Approve a clip and it lands here with its post time.</div>
+  {% endif %}
+</section>
+<script>window.SXM_HOME_DAYS = {{ h.days }};</script>
+{% endblock %}

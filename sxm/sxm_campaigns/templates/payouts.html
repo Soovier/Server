@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Payouts</h1>
+<div class="grid">
+  <div class="card kpi"><div class="v">{{ balance.available|usd }}</div><div class="l">Available</div></div>
+  <div class="card kpi"><div class="v">{{ balance.pending_payout|usd }}</div><div class="l">Payout in progress</div></div>
+  <div class="card kpi"><div class="v">{{ balance.paid|usd }}</div><div class="l">Paid to you</div></div>
+</div>
+
+<div class="grid" style="margin-top:16px">
+  <form class="card" method="post" action="/payouts/request">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <b>Cash out {{ balance.available|usd }}</b>
+    {% if not (stripe_on and user.stripe_account_id) %}
+      <label>Where to send it (PayPal email, Cash App tag...)</label><input name="details" required>
+    {% endif %}
+    <p class="muted">Minimum {{ min_payout|usd }}.</p>
+    <button {{ 'disabled' if balance.available < min_payout }}>Request payout</button>
+  </form>
+  {% if stripe_on %}
+  <div class="card"><b>Direct deposit with Stripe</b>
+    <p class="muted">{{ 'Connected. Payouts go straight to your bank.' if user.stripe_account_id else 'Connect a bank account once and payouts arrive automatically.' }}</p>
+    <a class="btn ghost" href="/payouts/stripe/start">{{ 'Update bank details' if user.stripe_account_id else 'Connect with Stripe' }}</a></div>
+  {% endif %}
+</div>
+
+<h2>History</h2>
+<div class="card" style="overflow-x:auto"><table>
+  <tr><th>Requested</th><th>Amount</th><th>Method</th><th>Status</th></tr>
+  {% for p in payouts %}<tr><td>{{ p.created_at|day }}</td><td>{{ p.amount_cents|usd }}</td><td>{{ p.method }}</td><td><span class="tag {{ 'good' if p.status=='paid' else ('bad' if p.status=='rejected') }}">{{ p.status }}</span></td></tr>
+  {% else %}<tr><td colspan="4" class="muted">No payouts yet.</td></tr>{% endfor %}
+</table></div>
+{% endblock %}

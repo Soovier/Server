@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Setup</h1>
+{% if msg %}<div class="notice toast-src">{{ msg }}</div>{% endif %}
+{% if missing %}
+<div class="notice">Keys still missing in <code>.env</code>:
+  <ul>{% for name, keys in missing.items() %}<li>{{ name }}: {{ keys|join(', ') }}</li>{% endfor %}</ul>
+  Follow SETUP.md, then restart the app.</div>
+{% endif %}
+
+<h2>Your channels</h2>
+<p class="muted" style="margin-top:-4px">Connect as many channels as you like, then switch on the ones SXM should post to. Every switched-on channel gets each approved clip at its own time slot.</p>
+
+{% set groups = [
+  ('youtube', 'YouTube', '/oauth/google/start', 'Add a channel', "Google asks which account and channel each time, including Brand Account channels. Repeat for every channel you own."),
+  ('facebook', 'Facebook Pages', '/oauth/meta/start', 'Connect Facebook + Instagram', "One Facebook login brings in every Page you manage and the Instagram accounts linked to them."),
+  ('instagram', 'Instagram', '/oauth/meta/start', 'Connect Facebook + Instagram', "Instagram Business or Creator accounts linked to one of your Facebook Pages."),
+] %}
+{% for p, label, start, cta, help in groups %}
+<section class="card chan {{ p }} channel-group {{ 'pulse' if pick == p or (pick == 'meta' and p != 'youtube') }}" id="ch-{{ p }}">
+  <div class="row" style="justify-content:space-between">
+    <div><b>{{ label }}</b> <span class="muted">· {{ chans[p]|selectattr('enabled')|list|length }} of {{ chans[p]|length }} on</span></div>
+    <a class="btn {{ 'ghost' if chans[p] }}" href="{{ start }}" data-no-boost>{{ cta if not chans[p] or p == 'youtube' else 'Refresh list' }}</a>
+  </div>
+  <p class="muted small">{{ help }}</p>
+  <ul class="chlist">
+    {% for c in chans[p] %}
+    <li class="chrow {{ 'on' if c.enabled }}">
+      {% if c.avatar %}<img class="av" src="{{ c.avatar }}" alt="" loading="lazy" referrerpolicy="no-referrer">{% else %}<span class="av ph">{{ (c.name or '?')[:1] }}</span>{% endif %}
+      <div class="chmeta">
+        <b>{{ c.name }}</b>
+        <span class="muted small">{{ c.handle or c.account_id }}{% if c.extra.subscribers %} · {{ c.extra.subscribers|num }} subscribers{% endif %}{% if c.extra.page_name %} · via {{ c.extra.page_name }}{% endif %}</span>
+        {% if not c.access_token %}<span class="tag warn">reconnect needed</span>{% endif %}
+      </div>
+      <form method="post" action="/channels/{{ c.id }}" class="inline">
+        <input type="hidden" name="action" value="{{ 'off' if c.enabled else 'on' }}">
+        <button class="toggle {{ 'on' if c.enabled }}" aria-pressed="{{ 'true' if c.enabled else 'false' }}" title="{{ 'Stop posting here' if c.enabled else 'Post here' }}"><span></span></button>
+      </form>
+      <form method="post" action="/channels/{{ c.id }}" class="inline">
+        <input type="hidden" name="action" value="remove">
+        <button class="icon ghost" title="Remove this channel" aria-label="Remove {{ c.name }}">✕</button>
+      </form>
+    </li>
+    {% else %}
+    <li class="muted small empty">Nothing connected yet.</li>
+    {% endfor %}
+  </ul>
+</section>
+{% endfor %}
+<p class="muted small">Redirect URLs registered with Google and Meta: <code>{{ base_url }}/oauth/google/callback</code> and <code>{{ base_url }}/oauth/meta/callback</code>.</p>
+
+<h2>Posting</h2>
+<form class="card" method="post" action="/settings/platforms">
+  <label>Post approved clips to</label>
+  <div class="row">{% for p in ['instagram','facebook','youtube'] %}<label class="switch"><input type="checkbox" name="platforms" value="{{ p }}" style="width:auto" {{ 'checked' if p in platforms }}> {{ p }}</label>{% endfor %}</div>
+  <label>YouTube visibility</label>
+  <select name="yt_privacy" style="width:200px">{% for v in ['public','unlisted','private'] %}<option {{ 'selected' if v==yt_privacy }}>{{ v }}</option>{% endfor %}</select>
+  <p><button class="ghost">Save</button></p>
+</form>
+{% endblock %}

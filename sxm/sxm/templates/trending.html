@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="row trend-head">
+  <div>
+    <h1>Trending <span class="live"></span></h1>
+    <p class="muted" style="margin-top:-8px">What's getting views right now. Ranked by <b>views per hour</b>, so you see what's taking off, not just what's old and big. Press <b>✂ Clip this</b> and SXM cuts it into Shorts for you. For the biggest <b>live</b> streams on Twitch, Kick and YouTube, see <a href="/streams#viral">🔥 Most viral right now</a>.</p>
+  </div>
+  <form method="post" action="/trending/refresh" class="inline">
+    <span class="muted small">{% if loading %}Checking now…{% elif t.updated %}Updated {{ t.updated }}{% endif %}</span>
+    <button class="ghost" {% if loading %}disabled{% endif %}>↻ Refresh</button>
+  </form>
+</div>
+{% if msg %}<div class="notice toast-src">{{ msg }}</div>{% endif %}
+
+<div class="trend-legend card reveal">
+  <span class="hot">⚡ views per hour since upload</span>
+  <span>💰 matches one of your campaigns</span>
+  <span>✓ you have permission to clip this streamer</span>
+  <span class="muted">Only post clips of streamers who've said yes, or that a campaign pays for.</span>
+</div>
+
+{% for s in t.sections %}
+<section class="trend reveal" style="--i:{{ loop.index }}" data-trend>
+  <div class="trend-top">
+    <h2 class="plain"><span class="t-icon">{{ s.icon }}</span> {{ s.title }}</h2>
+    {% if s.tabs|length > 1 %}
+    <div class="seg" role="tablist">
+      {% for tab in s.tabs %}<button type="button" role="tab" class="{{ 'on' if loop.first }}" data-tab="{{ s.key }}-{{ tab.key }}">{{ '🔥 ' if tab.key == 'now' else '🏆 ' }}{{ tab.label }}</button>{% endfor %}
+    </div>
+    {% endif %}
+    <div class="arrows"><button type="button" class="ghost icon" data-scroll="-1" aria-label="Back">‹</button><button type="button" class="ghost icon" data-scroll="1" aria-label="More">›</button></div>
+  </div>
+  <p class="muted small sub">{{ s.sub }}</p>
+  {% for tab in s.tabs %}
+  <div class="track" data-pane="{{ s.key }}-{{ tab.key }}" {% if not loop.first %}hidden{% endif %}>
+    {% for c in tab.cards %}
+    <article class="tcard {{ c.platform }}" style="--i:{{ loop.index0 }}">
+      <a class="t-media" href="{{ c.url }}" target="_blank" rel="noopener" title="Watch on {{ c.platform|capitalize }}">
+        {% if c.thumb %}<img src="{{ c.thumb }}" alt="" loading="lazy" referrerpolicy="no-referrer">{% endif %}
+        <span class="rank">#{{ c.rank }}</span>
+        <span class="plat {{ c.platform }}">{{ {'youtube':'▶ YouTube','twitch':'◆ Twitch','kick':'K Kick'}.get(c.platform, c.platform) }}</span>
+        {% if c.length %}<span class="dur">{{ c.length }}</span>{% endif %}
+        <span class="play">▶</span>
+      </a>
+      <div class="t-body">
+        <b class="t-title" title="{{ c.title }}">{{ c.title }}</b>
+        <span class="muted small ellipsis">{{ c.channel }}{% if c.game %} · {{ c.game }}{% endif %}</span>
+        <div class="t-stats">
+          <span title="Views">👁 {{ c.views_s }}</span>
+          {% if tab.key == 'now' %}<span class="hot" title="Views per hour since it went up">⚡ {{ c.vph_s }}/hr</span>{% endif %}
+          <span class="muted" title="{{ c.published }}">{{ c.age }}</span>
+        </div>
+        <div class="checks">
+          {% if c.campaign %}<span class="check-chip good" title="Matches a campaign you added">💰 {{ c.campaign }}{% if c.campaign_rate %} · ${{ '%.2f'|format(c.campaign_rate) }}/1K{% endif %}</span>{% endif %}
+          {% if c.permitted %}<span class="check-chip good">✓ Permission</span>{% endif %}
+          {% if c.was_live and c.platform == 'youtube' %}<span class="check-chip">🎥 Full stream</span>{% endif %}
+        </div>
+        <form method="post" action="/trending/clip" class="t-actions" data-no-boost data-clip>
+          <input type="hidden" name="url" value="{{ c.url }}"><input type="hidden" name="title" value="{{ c.title }}"><input type="hidden" name="streamer" value="{{ c.channel }}">
+          <a class="btn ghost" href="{{ c.url }}" target="_blank" rel="noopener">Watch ↗</a>
+          <button {% if c.queued %}class="done" disabled{% endif %}>{{ '✓ In queue' if c.queued else '✂ Clip this' }}</button>
+        </form>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="track">
+    {% for i in range(5) %}<div class="tcard skeleton" style="--i:{{ i }}"><div class="t-media"></div><div class="t-body"><i></i><i></i><i></i></div></div>{% endfor %}
+  </div>
+  {% endfor %}
+</section>
+{% endfor %}
+
+{% if t.notes %}
+<div class="card muted small trend-notes">{% for n in t.notes %}<div>ℹ️ {{ n }}</div>{% endfor %}</div>
+{% endif %}
+<div class="card muted small trend-notes">
+  {% if not t.sources.twitch %}<div>◆ <b>Twitch:</b> add <code>TWITCH_CLIENT_ID</code> and <code>TWITCH_CLIENT_SECRET</code> to <code>.env</code> (free at dev.twitch.tv) and Twitch's hottest clips show up here too.</div>{% endif %}
+  <div>K <b>Kick:</b> Kick doesn't offer a public way to read its trending list, so it isn't ranked here. Paste any Kick link on <a href="/import">Import</a> and it's clipped the same way.{% if t.kick %} Your Kick streamers: {% for k in t.kick %}<a href="https://kick.com/{{ k }}" target="_blank" rel="noopener">{{ k }}</a>{{ ', ' if not loop.last }}{% endfor %}.{% endif %}</div>
+</div>
+<script>window.SXM_TRENDING = {{ {'loading': loading, 'fetched_at': fetched_at}|tojson }};</script>
+{% endblock %}

@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% from "_length.html" import length_pick %}
+{% block content %}
+<h1>SXM Inventory</h1>
+<p class="muted" style="margin-top:-8px">Every video, at every step: waiting to download, being clipped, ready, lined up to post, and just posted. Updates by itself.</p>
+{% if msg %}<div class="notice toast-src">{{ msg }}</div>{% endif %}
+
+<section class="card auto-card reveal">
+  <div class="auto-head">
+    <span class="auto-bot">🤖</span>
+    <div><h2 class="plain">Auto-post</h2>
+      <p class="muted small">Pick an account and SXM posts one clip to it every few hours, for as long as there are clips. Use your own ready-made clips, or let SXM make them from a Trending carousel.</p></div>
+  </div>
+
+  {% for r in rules %}
+  <div class="rule {{ 'on' if r.enabled }}" style="--i:{{ loop.index }}">
+    <span class="t-dot {{ r.platform }}"></span>
+    <div class="rule-main">
+      <b>{{ r.channel_name }}</b> <span class="muted small">{{ {'youtube':'YouTube','instagram':'Instagram','facebook':'Facebook'}.get(r.platform, r.platform) }}</span>
+      <div class="small">Every <b>{{ '%g'|format(r.every_hours) }}h</b> · {{ r.source_label }}{% if r.source != 'library' %} · {{ r.min_s or lim.min }}–{{ r.max_s or lim.max }}s clips{% endif %}</div>
+      <div class="small muted">
+        {% if not r.enabled %}Paused{% else %}
+          {{ r.ready }} clip{{ 's' if r.ready != 1 }} ready · lasts {{ r.lasts }}
+          {% if r.next %} · next post <b class="hot">{{ r.next_in }}</b>{% endif %}
+          {% if r.making %} · ✂ making {{ r.making }} from Trending{% endif %}
+          {% if not r.next and not r.ready and not r.making %} · <span class="warn-text">out of clips: add some below{% if r.source != 'library' %} or wait for Trending to load{% endif %}</span>{% endif %}
+        {% endif %}
+      </div>
+      {% if r.enabled %}<div class="fuel"><i style="--f:{{ [r.ready / 6, 1]|min }}"></i></div>{% endif %}
+    </div>
+    <form method="post" action="/autopost/{{ r.id }}/{{ 'off' if r.enabled else 'on' }}" class="inline">
+      <button class="toggle {{ 'on' if r.enabled }}" title="Turn {{ 'off' if r.enabled else 'on' }}"><span></span></button></form>
+    <form method="post" action="/autopost/{{ r.id }}/remove" class="inline"><button class="ghost icon" title="Remove">✕</button></form>
+  </div>
+  {% endfor %}
+
+  {% if channels %}
+  <form method="post" action="/autopost" class="auto-form">
+    <div><label>Account</label>
+      <select name="channel_id">{% for c in channels %}<option value="{{ c.id }}">{{ c.name }} ({{ c.platform }})</option>{% endfor %}</select></div>
+    <div><label>Post every</label>
+      <select name="every_hours">{% for h in [1, 2, 3, 4, 6, 8, 12, 24] %}<option value="{{ h }}" {{ 'selected' if h == 4 }}>{{ h }} hour{{ 's' if h > 1 }}</option>{% endfor %}</select></div>
+    <div class="grow"><label>Clips from</label>
+      <select name="source">{% for k, label, desc in sources %}<option value="{{ k }}" title="{{ desc }}">{{ label }}</option>{% endfor %}</select></div>
+    <div><label>&nbsp;</label><button data-confetti>🤖 Start auto-posting</button></div>
+    <div class="auto-len">{{ length_pick(lim, 'auto-len') }}<p class="muted small">Used when SXM makes clips from a Trending carousel for this account.</p></div>
+  </form>
+  {% else %}
+  <p class="muted">Connect an account first on <a href="/setup">Connect</a>, then turn on Auto-post here.</p>
+  {% endif %}
+
+  <label class="drop slim" id="premade-drop">
+    <input type="file" id="premade-files" accept="video/*" multiple hidden>
+    <span class="drop-icon">🎞️</span>
+    <b>Add ready-made clips</b>
+    <span class="muted small">Already-edited vertical clips go straight into your library, no editing. Auto-post uses them.</span>
+  </label>
+  <div id="premade-uploads" class="uploads"></div>
+</section>
+
+<section class="reveal">
+  <div class="inv-tabs" role="tablist">
+    {% for c in b.cols %}<button type="button" class="inv-tab {{ 'on' if loop.first }}" data-col="{{ c.key }}"><span>{{ c.icon }}</span> {{ c.title }} <b class="pill">{{ b.counts[c.key] }}</b></button>{% endfor %}
+  </div>
+</section>
+
+<div class="board" id="board">
+  {% for c in b.cols %}
+  <section class="col card" data-colpane="{{ c.key }}" style="--i:{{ loop.index }}">
+    <header class="col-head"><span>{{ c.icon }}</span> <b>{{ c.title }}</b> <span class="pill">{{ c['items']|length }}</span></header>
+    <div class="col-body">
+    {% for r in c['items'] %}
+      {% if c.key in ('queued', 'processing') %}
+      <div class="inv-item {{ r.status }}">
+        <div class="inv-top"><b class="ellipsis" title="{{ r.name }}">{{ r.name }}</b>
+          <button type="button" class="ghost cancel-btn sm" data-cancel="{{ r.id }}" title="Cancel and remove">✕ Cancel</button></div>
+        <span class="muted small">{{ r.streamer or r.platform }}{% if r.autopost_id %} · 🤖 for auto-post{% endif %}</span>
+        <div class="q-bar {{ 'indet' if c.key == 'processing' or (r.status == 'downloading' and not r.pct) }}"><i style="width:{{ r.pct or 0 }}%"></i></div>
+        <span class="small {{ 'hot' if r.status == 'downloading' }}">{{ r.line }}</span>
+      </div>
+      {% elif c.key == 'processed' %}
+      <a class="inv-item row-item" href="{{ '/review' if r.status == 'pending_review' else '/downloads' }}">
+        {% if r.thumb_path %}<img src="/media/clips/clip_{{ r.id }}.jpg" alt="" loading="lazy">{% else %}<span class="ph">🎬</span>{% endif %}
+        <span class="grow"><b class="ellipsis">{{ r.hook or ('Clip #' ~ r.id) }}</b>
+          <span class="muted small">{{ r.streamer or ('Ready-made' if r.src_platform == 'premade' else '') }} · {{ '%.0f'|format(r.secs or 0) }}s · {{ r.ago }}</span></span>
+        <span class="tag {{ 'warn' if r.status == 'pending_review' else 'good' }}">{{ r.label }}</span>
+      </a>
+      {% else %}
+      <div class="inv-item row-item">
+        {% if r.thumb_path %}<img src="/media/clips/clip_{{ r.clip_id }}.jpg" alt="" loading="lazy">{% else %}<span class="ph">🎬</span>{% endif %}
+        <span class="grow"><b class="ellipsis">{{ r.hook or ('Clip #' ~ r.clip_id) }}</b>
+          <span class="muted small"><span class="t-dot {{ r.platform }}"></span>{{ r.channel_name or r.platform }} · {% if c.key == 'posted' %}{{ r.ago }}{% else %}{{ r.when }}{% endif %}</span></span>
+        {% if c.key == 'posted' %}
+          {% if r.status == 'failed' %}<span class="tag bad" title="{{ r.error or '' }}">Failed</span>
+          {% elif r.permalink %}<a class="tag good" href="{{ r.permalink }}" target="_blank" rel="noopener">{{ '🤖 Auto' if r.auto else 'Posted' }} ↗</a>
+          {% else %}<span class="tag good">{{ '🤖 Auto' if r.auto else 'Posted' }}</span>{% endif %}
+        {% else %}<span class="tag {{ 'hot' if c.key == 'auto' }}">{{ r.in }}</span>
+          <a class="tag" href="/clip/{{ r.clip_id }}" title="Open in the editor">✂️ Edit</a>{% endif %}
+      </div>
+      {% endif %}
+    {% else %}
+      <div class="muted small empty">{{ {'queued':'Nothing waiting. Add videos on Import or Trending.','processing':'Nothing being clipped right now.','processed':'No clips yet.','upcoming':'Nothing lined up.','auto':'Turn on Auto-post above.','posted':'Nothing posted yet.'}[c.key] }}</div>
+    {% endfor %}
+    </div>
+  </section>
+  {% endfor %}
+</div>
+<script>window.SXM_INVENTORY = true;</script>
+{% endblock %}

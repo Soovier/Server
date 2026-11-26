@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Dashboard</h1>
+
+{% if totals %}
+<h2>Platform (admin)</h2>
+<div class="grid">
+  <div class="card kpi"><div class="v">{{ totals.gross|usd }}</div><div class="l">Brands paid in</div></div>
+  <div class="card kpi"><div class="v">{{ totals.fees|usd }}</div><div class="l">Your fees</div></div>
+  <div class="card kpi"><div class="v">{{ totals.earned|usd }}</div><div class="l">Earned by clippers</div></div>
+  <div class="card kpi"><div class="v">{{ totals.owed|usd }}</div><div class="l">Owed to clippers</div></div>
+  <div class="card kpi"><div class="v">{{ totals.views|num }}</div><div class="l">Paid views</div></div>
+</div>
+
+<h2>Payout requests</h2>
+<div class="card" style="overflow-x:auto"><table>
+  <tr><th>Clipper</th><th>Amount</th><th>Method / details</th><th></th></tr>
+  {% for p in payout_reqs %}
+  <tr><td>{{ p.name }}<div class="muted">{{ p.email }}</div></td><td>{{ p.amount_cents|usd }}</td><td>{{ p.method }} {{ p.details or '' }}</td>
+    <td><form method="post" action="/admin/payouts/{{ p.id }}" class="row"><input type="hidden" name="csrf" value="{{ csrf }}">
+      {% if p.method == 'stripe' %}<button class="good" name="action" value="stripe">Send via Stripe</button>{% endif %}
+      <input name="reference" placeholder="PayPal/Zelle ref" style="width:150px"><button class="ghost" name="action" value="manual">Mark paid</button>
+      <button class="bad" name="action" value="reject">Reject</button></form></td></tr>
+  {% else %}<tr><td colspan="4" class="muted">None</td></tr>{% endfor %}
+</table></div>
+
+<h2>Accounts waiting for verification</h2>
+<div class="card" style="overflow-x:auto"><table>
+  <tr><th>Clipper</th><th>Account</th><th>Code to look for</th><th></th></tr>
+  {% for a in unverified %}
+  <tr><td>{{ a.name }}</td><td><span class="tag {{ a.platform }}">{{ a.platform }}</span> {{ a.handle }}</td><td><code>{{ a.code }}</code></td>
+    <td><form method="post" action="/admin/accounts/{{ a.id }}/verify"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="ghost">Verify</button></form></td></tr>
+  {% else %}<tr><td colspan="4" class="muted">None</td></tr>{% endfor %}
+</table></div>
+
+<h2>Users</h2>
+<div class="card" style="overflow-x:auto"><table>
+  <tr><th>Name</th><th>Email</th><th>Role</th><th>Joined</th><th></th></tr>
+  {% for x in users %}<tr><td>{{ x.name }}</td><td>{{ x.email }}</td><td>{{ x.role }}</td><td>{{ x.created_at|day }}</td>
+    <td>{% if x.id != user.id %}<form method="post" action="/admin/users/{{ x.id }}/ban"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="banned" value="{{ 0 if x.banned else 1 }}"><button class="{{ 'ghost' if x.banned else 'bad' }}">{{ 'Unban' if x.banned else 'Ban' }}</button></form>{% endif %}</td></tr>{% endfor %}
+</table></div>
+{% endif %}
+
+{% if camps is defined %}
+<h2>{{ 'All campaigns' if user.role == 'admin' else 'Your campaigns' }}</h2>
+<div class="clips">
+{% for c in camps %}
+  <a class="card camp" href="/campaigns/{{ c.id }}" style="color:inherit">
+    <div class="row" style="justify-content:space-between"><h3>{{ c.title }}</h3><span class="tag">{{ c.status }}</span></div>
+    <div class="bar"><i style="width:{{ c.pct }}%"></i></div>
+    <div class="muted">{{ c.spent|usd }} spent of {{ c.funded_cents|usd }} funded · {{ c.views|num }} views</div>
+    {% if c.pending %}<div class="tag warn" style="margin-top:8px">{{ c.pending }} to review</div>{% endif %}
+  </a>
+{% else %}
+  <div class="card muted">No campaigns yet. <a href="/campaigns/new">Create one</a>.</div>
+{% endfor %}
+</div>
+{% endif %}
+
+{% if balance %}
+<h2>Your earnings</h2>
+<div class="grid">
+  <div class="card kpi"><div class="v">{{ balance.available|usd }}</div><div class="l">Available</div></div>
+  <div class="card kpi"><div class="v">{{ balance.earned|usd }}</div><div class="l">Earned all time</div></div>
+  <div class="card kpi"><div class="v">{{ balance.paid|usd }}</div><div class="l">Paid out</div></div>
+</div>
+{% if not accounts %}<div class="notice" style="margin-top:16px">Add your social accounts on your <a href="/profile">profile</a> before submitting.</div>{% endif %}
+<h2>Your submissions</h2>
+<div class="card" style="overflow-x:auto"><table>
+  <tr><th>Campaign</th><th>Post</th><th>Status</th><th>Views</th><th>Earned</th><th>Update views</th></tr>
+  {% for s in subs %}
+  <tr><td><a href="/campaigns/{{ s.campaign_id }}">{{ s.campaign }}</a></td>
+    <td><a href="{{ s.post_url }}" target="_blank" rel="noopener"><span class="tag {{ s.platform }}">{{ s.platform }}</span></a></td>
+    <td><span class="tag {{ 'good' if s.status=='approved' else ('bad' if s.status=='rejected') }}">{{ s.status }}</span></td>
+    <td>{{ s.views|num }}{% if s.views_source=='api' %} <span class="tag good">auto</span>{% elif s.reported_views > s.views %}<div class="muted">{{ s.reported_views|num }} awaiting confirm</div>{% endif %}</td>
+    <td>{{ s.earned_cents|usd }}</td>
+    <td>{% if s.views_source != 'api' and s.status != 'rejected' %}
+      <form method="post" action="/submissions/{{ s.id }}/report" enctype="multipart/form-data" class="row"><input type="hidden" name="csrf" value="{{ csrf }}">
+        <input name="views" type="number" value="{{ s.reported_views }}" style="width:110px"><input type="file" name="proof" accept="image/*" style="width:180px"><button class="ghost">Send</button></form>{% endif %}</td></tr>
+  {% else %}<tr><td colspan="6" class="muted">No submissions yet. <a href="/">Find a campaign</a>.</td></tr>{% endfor %}
+</table></div>
+{% endif %}
+{% endblock %}
