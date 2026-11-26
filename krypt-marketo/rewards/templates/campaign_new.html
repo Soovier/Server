@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>New campaign</h1>
+<form class="card" method="post" action="/campaigns">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <label>Title</label><input name="title" required placeholder="Clip my streams">
+  <label>What you want (shown to clippers)</label><textarea name="description" rows="3"></textarea>
+  <label>Footage clippers may use (links, one per line)</label><textarea name="source_urls" rows="3" placeholder="https://twitch.tv/yourname/videos&#10;https://youtube.com/@yourname"></textarea>
+  <label>Rules</label><textarea name="rules" rows="3" placeholder="Credit @yourname in the caption. No reaction or AI voiceover."></textarea>
+  <div class="grid">
+    <div><label>Pay per 1,000 views ($)</label><input name="rate" type="number" step="0.01" min="0.01" required value="1.00"></div>
+    <div><label>Max pay per clip ($, 0 = none)</label><input name="max_per_post" type="number" step="0.01" value="0"></div>
+    <div><label>Views before a clip earns</label><input name="min_views" type="number" value="1000"></div>
+    <div><label>Total budget ($)</label><input name="budget" type="number" step="0.01" min="1" required value="500"></div>
+    <div><label>Ends on (optional)</label><input name="ends_at" type="date"></div>
+    <div><label>Required hashtags / mentions</label><input name="required_tags" placeholder="#ad @yourname"></div>
+  </div>
+  <label>Platforms you pay for</label>
+  <div class="row">{% for p in ['youtube','instagram','facebook','tiktok'] %}<label class="switch"><input type="checkbox" name="platforms" value="{{ p }}" style="width:auto" {{ 'checked' if p in ('youtube','instagram') }}> {{ p }}</label>{% endfor %}</div>
+  <p class="muted">A {{ fee }}% platform fee is taken from what you fund. Unspent budget stays on the campaign.</p>
+  <p><button>Create campaign</button></p>
+</form>
+{% endblock %}

@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ site }}</title>
+  <link rel="icon" href="/static/logo.svg">
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    .hero { padding: 32px 0 8px; }
+    .hero h1 { font-size: 34px; margin-bottom: 8px; }
+    .hero p { color: var(--muted); max-width: 640px; font-size: 16px; }
+    .bar { height: 8px; background: var(--panel2); border-radius: 4px; overflow: hidden; margin: 8px 0; }
+    .bar i { display: block; height: 100%; background: linear-gradient(90deg, #c084fc, #7c3aed); }
+    .camp h3 { margin: 0 0 4px; font-size: 17px; }
+    .camp .rate { font-size: 22px; font-weight: 700; color: #c084fc; }
+    .err { border-color: var(--bad); }
+    pre.src { white-space: pre-wrap; word-break: break-all; color: var(--muted); margin: 0; }
+    code.tok { word-break: break-all; display: block; padding: 10px; background: #0e0c19; border-radius: 8px; }
+  </style>
+</head>
+<body>
+<header>
+  <a class="brand" href="/"><img src="/static/logo.svg" alt=""><span><b>Krypt</b><small>REWARDS</small></span></a>
+  <nav>
+    <a href="/">Campaigns</a>
+    {% if user %}
+      <a href="/dashboard">Dashboard</a>
+      {% if user.role in ('brand','admin') %}<a href="/campaigns/new">New campaign</a>{% endif %}
+      {% if user.role in ('clipper','admin') %}<a href="/payouts">Payouts</a>{% endif %}
+      <a href="/profile">Profile</a>
+    {% endif %}
+  </nav>
+  <div class="status">
+    {% if user %}
+      <span class="tag">{{ user.name }} · {{ user.role }}</span>
+      <form method="post" action="/logout"><button class="ghost">Log out</button></form>
+    {% else %}
+      <a class="btn ghost" href="/login">Log in</a><a class="btn" href="/signup">Sign up</a>
+    {% endif %}
+  </div>
+</header>
+<main>
+  {% if msg %}<div class="notice">{{ msg }}</div>{% endif %}
+  {% if err %}<div class="notice err">{{ err }}</div>{% endif %}
+  {% block content %}{% endblock %}
+</main>
+</body>
+</html>

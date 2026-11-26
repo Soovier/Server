@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="hero">
+  <h1>Get paid for every view your clips get.</h1>
+  <p>Brands and streamers fund campaigns. Clippers post short clips from the campaign's footage and earn a set rate per 1,000 views, checked automatically and paid from the campaign budget.</p>
+  {% if not user %}<div class="row"><a class="btn" href="/signup?role=clipper">Start clipping</a><a class="btn ghost" href="/signup?role=brand">Launch a campaign</a></div>{% endif %}
+</div>
+
+<div class="grid" style="margin:24px 0">
+  <div class="card kpi"><div class="v">{{ camps|length }}</div><div class="l">Live campaigns</div></div>
+  <div class="card kpi"><div class="v">{{ totals.views|num }}</div><div class="l">Paid views</div></div>
+  <div class="card kpi"><div class="v">{{ totals.earned|usd }}</div><div class="l">Earned by clippers</div></div>
+</div>
+
+<h2>Live campaigns</h2>
+<div class="clips">
+{% for c in camps %}
+  <a class="card camp" href="/campaigns/{{ c.id }}" style="color:inherit">
+    <h3>{{ c.title }}</h3>
+    <div class="rate">{{ c.rate_cents_per_1k|usd }} <span class="muted" style="font-size:13px;font-weight:400">per 1K views</span></div>
+    <div class="bar"><i style="width:{{ c.pct }}%"></i></div>
+    <div class="row muted" style="font-size:12px;justify-content:space-between"><span>{{ c.spent|usd }} of {{ c.funded_cents|usd }} paid out</span><span>{{ c.approved or 0 }} clips</span></div>
+    <div class="row" style="margin-top:8px">{% for p in c.platforms.split(',') %}<span class="tag {{ p }}">{{ p }}</span>{% endfor %}
+      {% if c.max_cents_per_post %}<span class="tag">max {{ c.max_cents_per_post|usd }}/clip</span>{% endif %}</div>
+  </a>
+{% else %}
+  <div class="card muted">No live campaigns right now.</div>
+{% endfor %}
+</div>
+{% endblock %}

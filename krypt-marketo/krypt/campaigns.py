@@ -1,4 +1,9 @@
-"""Content Rewards campaigns: tracking, assisted submit, and earnings.
+"""Campaigns: tracking, submit, and earnings.
+
+Campaigns from your own Krypt Rewards site (REWARDS_URL) are submitted
+automatically through its API the moment a post goes live.
+
+For Content Rewards campaigns:
 
 Content Rewards has no public API, and its terms say "We do not post on your
 behalf" and that a post must be submitted "within 30 minutes of publishing
@@ -36,6 +41,14 @@ def queue_submission(db: DB, campaign_id: int, post_id: int) -> int | None:
     if post["platform"] not in (camp["platforms"] or "").split(","):
         return None
     sid = db.insert("submissions", {"campaign_id": campaign_id, "post_id": post_id}, ignore=True)
+    if camp.get("rewards_campaign_id"):
+        from . import rewards_client
+        if rewards_client.enabled() and sid:
+            try:
+                if rewards_client.submit(db, sid):
+                    return sid
+            except Exception as e:  # fall back to the manual alert below
+                db.update("submissions", sid, note=f"auto-submit failed: {e}"[:300])
     notify(f"Submit to '{camp['name']}' within {SUBMIT_WINDOW_MIN} min: {post['permalink']}",
            link=camp["url"])
     return sid

@@ -154,9 +154,22 @@ class DB:
         self._conn.execute("PRAGMA foreign_keys = ON")
         self._conn.execute("PRAGMA journal_mode = WAL") if self.path != ":memory:" else None
         self._conn.executescript(SCHEMA)
+        self._migrate()
         for k, v in DEFAULT_SETTINGS.items():
             self._conn.execute("INSERT OR IGNORE INTO settings(key, value) VALUES (?, ?)", (k, v))
         self._conn.commit()
+
+    def _migrate(self) -> None:
+        """Add columns introduced after the first release."""
+        adds = {
+            "campaigns": {"rewards_campaign_id": "INTEGER"},
+            "submissions": {"rewards_submission_id": "INTEGER"},
+        }
+        for table, cols in adds.items():
+            have = {r[1] for r in self._conn.execute(f"PRAGMA table_info({table})")}
+            for col, typ in cols.items():
+                if col not in have:
+                    self._conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typ}")
 
     @contextmanager
     def tx(self) -> Iterator[sqlite3.Connection]:

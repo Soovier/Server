@@ -58,6 +58,10 @@ class Settings:
     google_client_id: str = field(default_factory=lambda: _env("GOOGLE_CLIENT_ID"))
     google_client_secret: str = field(default_factory=lambda: _env("GOOGLE_CLIENT_SECRET"))
 
+    # Krypt Rewards (your own campaign platform)
+    rewards_url: str = field(default_factory=lambda: _env("REWARDS_URL").rstrip("/"))
+    rewards_api_token: str = field(default_factory=lambda: _env("REWARDS_API_TOKEN"))
+
     # Schedule (cron-style, in KRYPT_TIMEZONE)
     discover_cron: str = field(default_factory=lambda: _env("DISCOVER_CRON", "0 */3 * * *"))
     analytics_cron: str = field(default_factory=lambda: _env("ANALYTICS_CRON", "30 */6 * * *"))

@@ -48,6 +48,12 @@ def sync_metrics(db: DB) -> str:
                 done += 1
         except Exception as e:
             errors.append(f"yt: {e}")
+    from . import rewards_client
+    if rewards_client.enabled():
+        try:
+            rewards_client.push_views(db)
+        except Exception as e:
+            errors.append(f"rewards views: {e}")
     return f"synced {done} posts" + (f"; {len(errors)} errors: {errors[:3]}" if errors else "")
 
 

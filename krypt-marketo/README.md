@@ -11,6 +11,11 @@ watch hours and revenue.
 
 Setup checklist (API keys, OAuth apps): **[SETUP.md](SETUP.md)**.
 
+**Krypt Rewards** (`rewards/`) is your own campaign platform, a replacement for
+Content Rewards built on the same code: brands fund campaigns, clippers submit,
+views are verified, payouts are tracked, and Krypt Marketo submits to it
+automatically. See **[REWARDS.md](REWARDS.md)**.
+
 ## Quick start (Windows)
 
 ```powershell
@@ -79,7 +84,9 @@ krypt/
   analytics.py      metric sync + per-channel/combined rollups
   jobs.py           APScheduler jobs
   web.py            dashboard (FastAPI + Jinja)
-tests/              pytest (mocked APIs + real FFmpeg renders)
+  rewards_client.py talks to your Krypt Rewards site
+rewards/            Krypt Rewards website: auth, campaigns, ledger, verify, Stripe, API
+tests/              pytest (mocked APIs + real FFmpeg renders + full marketplace flows)
 ```
 
 Data lives in `data/` (SQLite `krypt.db` + media). Tokens are stored there

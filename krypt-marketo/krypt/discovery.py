@@ -159,6 +159,12 @@ def discover_campaigns(db: DB) -> int:
 
 def run_discovery(db: DB) -> str:
     notes = []
+    from . import rewards_client
+    if rewards_client.enabled():
+        try:
+            notes.append(f"krypt rewards campaigns new: {rewards_client.sync_campaigns(db)}")
+        except Exception as e:
+            notes.append(f"krypt rewards sync failed: {e}")
     n = discover_campaigns(db)
     notes.append(f"campaign sources: {n}")
     if settings.twitch_client_id and settings.twitch_streamers:
