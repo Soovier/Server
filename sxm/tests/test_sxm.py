@@ -506,3 +506,134 @@ def test_import_upload_endpoint(db, monkeypatch):
         r = c.post("/import/links", data={"links": "https://youtu.be/zzz", "streamer": "", "layout": "auto", "clips": 2},
                    follow_redirects=False)
         assert r.status_code == 303
+
+
+# ---------------- trending ----------------
+
+def _yt_video(vid, title, views, hours_ago, channel="Streamer", secs=3600, live=True, hd=True):
+    pub = (datetime.now(timezone.utc) - timedelta(hours=hours_ago)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    v = {"id": vid, "snippet": {"title": title, "channelTitle": channel, "publishedAt": pub,
+                               "thumbnails": {"high": {"url": f"https://i.ytimg.com/{vid}.jpg"}}},
+         "statistics": {"viewCount": str(views)},
+         "contentDetails": {"duration": f"PT{secs}S", "definition": "hd" if hd else "sd"}}
+    if live:
+        v["liveStreamingDetails"] = {"actualStartTime": pub}
+    return v
+
+
+def trending_http(calls):
+    vids = {
+        "s1": _yt_video("s1", "INSANE stream moment", 200_000, 50, "Kai"),
+        "s2": _yt_video("s2", "full stream rage", 120_000, 4, "Ishow"),          # fewer views but way faster
+        "s3": _yt_video("s3", "short thing", 999_999, 2, "Tiny", secs=40),        # a Short: dropped
+        "s4": _yt_video("s4", "potato quality", 500_000, 3, "Old", hd=False),      # SD: dropped
+        "g1": _yt_video("g1", "GTA 6 trailer reaction", 3_000_000, 30, "Rp", live=False),
+        "g2": _yt_video("g2", "GTA RP funniest moments", 90_000_000, 20000, "Legend", live=False),
+        "c1": _yt_video("c1", "Fortnite new season", 800_000, 10, "Ninja", live=False),
+        "c2": _yt_video("c2", "GTA chart video", 5_000_000, 10, "Gta guy", live=False),  # GTA: not in 'other games'
+    }
+
+    def handler(req: httpx.Request):
+        calls.append(str(req.url))
+        p = req.url.params
+        if req.url.path.endswith("/search"):
+            q, after = p["q"], p.get("publishedAfter")
+            if "stream highlights" in q:
+                ids = ["s1", "s2", "s3", "s4"]
+            elif "GTA" in q:
+                ids = ["g1"] if after else ["g2", "g1"]
+            else:
+                ids = ["c1"]
+            return httpx.Response(200, json={"items": [{"id": {"videoId": i}} for i in ids]})
+        if req.url.path.endswith("/videos"):
+            if p.get("chart") == "mostPopular":
+                return httpx.Response(200, json={"items": [vids["c1"], vids["c2"]]})
+            return httpx.Response(200, json={"items": [vids[i] for i in p["id"].split(",")]})
+        if "id.twitch.tv" in str(req.url):
+            return httpx.Response(200, json={"access_token": "tw"})
+        if req.url.path.endswith("/games/top"):
+            return httpx.Response(200, json={"data": [{"id": "509658", "name": "Just Chatting"}, {"id": "32982", "name": "GTA V"},
+                                                      {"id": "33214", "name": "Fortnite"}]})
+        if req.url.path.endswith("/clips"):
+            gid = p.get("game_id")
+            pub = (datetime.now(timezone.utc) - timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
+            return httpx.Response(200, json={"data": [{"id": f"tc{gid}{x}", "url": f"https://clips.twitch.tv/tc{gid}{x}",
+                                                       "title": f"clip {gid}", "broadcaster_name": f"bc{gid}{x}",
+                                                       "thumbnail_url": "", "created_at": pub, "view_count": 40_000 - i,
+                                                       "duration": 30} for i, x in enumerate(("", "b"))]})
+        return httpx.Response(404)
+    return httpx.Client(transport=httpx.MockTransport(handler))
+
+
+def test_trending_rows_rank_by_velocity_and_filter(db, monkeypatch):
+    from sxm import trending
+    monkeypatch.setattr(settings, "youtube_api_key", "KEY")
+    monkeypatch.setattr(settings, "twitch_client_id", "id")
+    monkeypatch.setattr(settings, "twitch_client_secret", "sec")
+    calls = []
+    data = trending.build(db, trending_http(calls))
+    rows = data["rows"]
+    yt_streams = [c["id"] for c in rows["streamers"]["now"] if c["platform"] == "youtube"]
+    assert yt_streams == ["s2", "s1"]                     # 30k/hr beats 4k/hr; Short and SD gone
+    assert any(c["platform"] == "twitch" for c in rows["streamers"]["now"])
+    assert [c["id"] for c in rows["gta"]["all"]] == ["g2"]  # g1 already shown in "now"
+    assert rows["gta"]["now"][0]["id"] == "g1"
+    assert "tc32982" in [c["id"] for c in rows["gta"]["now"]]
+    games_now = [c["id"] for c in rows["games"]["now"]]
+    assert "c1" in games_now and "c2" not in games_now and "tc33214b" in games_now
+    assert not any(x.startswith("tc509658") for x in games_now)                   # Just Chatting isn't a game
+    assert all("key=KEY" in u for u in calls if "googleapis" in u)
+    # ~5 searches at 100 units each: stays well under the daily quota at a 6h refresh
+    assert sum("/search" in u for u in calls) <= 5
+
+
+def test_trending_cache_view_and_clip_this(db, monkeypatch):
+    from sxm import trending
+    monkeypatch.setattr(settings, "youtube_api_key", "KEY")
+    monkeypatch.setattr(settings, "twitch_client_id", "")
+    db.insert("campaigns", {"name": "Fortnite Season Push", "url": "https://x", "rate_per_1k": 1.5,
+                            "created_at": utcnow()})
+    db.set_setting("permitted_streamers", "ninja")
+    calls = []
+    data = trending.refresh(db, trending_http(calls))
+    assert trending.cached(db)["fetched_at"] == data["fetched_at"]
+    n = len(calls)
+    trending.refresh(db, trending_http(calls))           # fresh cache: no new API calls
+    assert len(calls) == n
+    v = trending.view(db, trending.cached(db))
+    games = next(s for s in v["sections"] if s["key"] == "games")
+    card = next(c for c in games["tabs"][0]["cards"] if c["id"] == "c1")
+    assert card["campaign"] == "Fortnite Season Push" and card["permitted"]
+    assert card["views_s"] == "800K" and card["vph_s"] == "80K"
+    sid = trending.queue_clip(db, card["url"], card["title"], card["channel"])
+    src = db.one("SELECT * FROM sources WHERE id=?", (sid,))
+    assert src["priority"] == 10 and src["streamer"] == "Ninja" and src["title"] == "Fortnite new season"
+    assert trending.queue_clip(db, card["url"]) is None    # already queued
+    assert trending.view(db, trending.cached(db))["sections"][2]["tabs"][0]["cards"][0]["queued"] in (True, False)
+    with pytest.raises(ValueError):
+        trending.queue_clip(db, "https://evil.example/video")
+
+
+def test_trending_without_youtube_explains(db, monkeypatch):
+    from sxm import trending
+    monkeypatch.setattr(settings, "youtube_api_key", "")
+    monkeypatch.setattr(settings, "twitch_client_id", "")
+    data = trending.build(db, httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(500))))
+    assert any("Connect a YouTube channel" in n for n in data["notes"])
+    assert trending.short_num(1_250_000) == "1.2M" and trending.short_num(999) == "999"
+
+
+def test_trending_page_renders(db, monkeypatch):
+    from fastapi.testclient import TestClient
+    from sxm import trending
+    from sxm.web import app
+    monkeypatch.setattr(settings, "youtube_api_key", "KEY")
+    monkeypatch.setattr(settings, "twitch_client_id", "")
+    trending.refresh(db, trending_http([]))
+    c = TestClient(app)
+    r = c.get("/trending")
+    assert r.status_code == 200
+    assert "Streamer videos blowing up now" in r.text and "Clip this" in r.text and "full stream rage" in r.text
+    r = c.post("/trending/clip", data={"url": "https://www.youtube.com/watch?v=s2", "title": "t", "streamer": "Ishow"})
+    assert r.json()["ok"]
+    assert "✓ In queue" in c.get("/trending").text

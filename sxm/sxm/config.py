@@ -39,6 +39,9 @@ class Settings:
     twitch_streamers: list[str] = field(default_factory=lambda: _list("TWITCH_STREAMERS"))
     youtube_source_channels: list[str] = field(default_factory=lambda: _list("YOUTUBE_SOURCE_CHANNEL_IDS"))
     kick_streamers: list[str] = field(default_factory=lambda: _list("KICK_STREAMERS"))
+    # Optional: a plain YouTube Data API key for the Trending page. Blank = use your connected channel.
+    youtube_api_key: str = field(default_factory=lambda: _env("YOUTUBE_API_KEY"))
+    trending_refresh_hours: float = field(default_factory=lambda: float(_env("TRENDING_REFRESH_HOURS", "6")))
 
     # Clipping
     whisper_model: str = field(default_factory=lambda: _env("WHISPER_MODEL", "small"))

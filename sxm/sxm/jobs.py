@@ -46,7 +46,15 @@ JOBS = {
     "pipeline": pipeline,
     "publish": lambda db=None: _run("publish", publish_due, db),
     "analytics": lambda db=None: _run("analytics", sync_metrics, db),
+    "trending": lambda db=None: _run("trending", _trending, db),
 }
+
+
+def _trending(db: DB) -> str:
+    from .trending import refresh
+    data = refresh(db, force=True)
+    n = sum(len(v) for r in data.get("rows", {}).values() for v in r.values())
+    return f"{n} trending videos" + (f" ({'; '.join(data['notes'])})" if data.get("notes") else "")
 
 
 def start_scheduler():
@@ -59,5 +67,7 @@ def start_scheduler():
     sched.add_job(JOBS["publish"], "interval", minutes=1, id="publish", max_instances=1, coalesce=True)
     sched.add_job(JOBS["analytics"], CronTrigger.from_crontab(settings.analytics_cron, timezone=settings.timezone),
                   id="analytics", max_instances=1, coalesce=True)
+    sched.add_job(JOBS["trending"], "interval", hours=max(1.0, settings.trending_refresh_hours), id="trending",
+                  max_instances=1, coalesce=True)
     sched.start()
     return sched

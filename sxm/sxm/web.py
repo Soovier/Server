@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import analytics, campaigns, home, importer, review
+from . import analytics, campaigns, home, importer, review, trending
 from .config import settings
 from .db import get_db
 from .discovery import add_manual_url
@@ -310,6 +310,66 @@ def import_page(request: Request, msg: str = ""):
                 import_clips=db.get_setting("import_clips", str(settings.clips_per_source)),
                 permitted=sorted(review.permitted_streamers(db)), msg=msg,
                 import_streamer=db.get_setting("import_streamer", ""))
+
+
+# ---------------- Trending ----------------
+
+_trend_lock = threading.Lock()
+_trend_tried = {"at": 0.0}
+
+
+def _refresh_trending_bg(force: bool = False) -> bool:
+    """Refresh in the background so the page never waits on YouTube. False if one is already running
+    (or, when not forced, if one was tried in the last 10 minutes)."""
+    import time
+    if not force and time.time() - _trend_tried["at"] < 600:
+        return False
+    if not _trend_lock.acquire(blocking=False):
+        return False
+    _trend_tried["at"] = time.time()
+
+    def run():
+        try:
+            trending.refresh(get_db(), force=force)
+        except Exception:
+            import logging
+            logging.getLogger("sxm.trending").exception("refresh")
+        finally:
+            _trend_lock.release()
+    threading.Thread(target=run, name="sxm-trending", daemon=True).start()
+    return True
+
+
+@app.get("/trending", response_class=HTMLResponse)
+def trending_page(request: Request, msg: str = ""):
+    db = get_db()
+    data = trending.cached(db)
+    if trending.is_stale(data):
+        _refresh_trending_bg()
+    return page(request, "trending.html", nav="trending", t=trending.view(db, data), loading=_trend_lock.locked(),
+                fetched_at=(data or {}).get("fetched_at", ""), msg=msg)
+
+
+@app.get("/api/trending")
+def api_trending():
+    data = trending.cached(get_db()) or {}
+    return JSONResponse({"fetched_at": data.get("fetched_at", ""), "loading": _trend_lock.locked()})
+
+
+@app.post("/trending/refresh")
+def trending_refresh():
+    _refresh_trending_bg(force=True)
+    return RedirectResponse("/trending?msg=" + quote_plus("Checking what's hot. New cards appear in a few seconds."), 303)
+
+
+@app.post("/trending/clip")
+def trending_clip(url: str = Form(...), title: str = Form(""), streamer: str = Form("")):
+    try:
+        sid = trending.queue_clip(get_db(), url, title, streamer)
+    except ValueError as e:
+        return JSONResponse({"ok": False, "msg": str(e)}, 400)
+    return JSONResponse({"ok": True, "id": sid,
+                         "msg": "Sent to the Import queue" if sid else "Already in your queue"})
 
 
 @app.get("/api/queue")

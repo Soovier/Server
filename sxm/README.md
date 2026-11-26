@@ -134,3 +134,7 @@ locally and never leave your machine except to the platform they belong to.
 pip install -r requirements.txt pytest
 python -m pytest -q
 ```
+
+## Trending
+
+The **Trending** tab shows three carousels you can swipe through: streamer videos blowing up right now (last 3 days), GTA (this week and all-time), and other games going viral (YouTube's Gaming chart plus Twitch's top games). "Right now" is ranked by views per hour. Cards that match one of your campaigns get a 💰 badge, and **✂ Clip this** sends the video straight to the Import queue. It refreshes every `TRENDING_REFRESH_HOURS` (default 6, about 500 of YouTube's 10,000 free daily quota units each time) using your connected channel or an optional `YOUTUBE_API_KEY`. Twitch shows up once `TWITCH_CLIENT_ID`/`SECRET` are set. Kick has no public API, so Kick links go in through Import.

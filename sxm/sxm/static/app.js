@@ -280,6 +280,54 @@
     }, 15000);
   }
 
+  // Trending: tabs, arrow scrolling, one-tap "Clip this", and new cards when a refresh lands.
+  let trendTimer = null;
+  function trendingPage(root) {
+    clearInterval(trendTimer);
+    root.querySelectorAll('[data-trend]').forEach((sec) => {
+      sec.querySelectorAll('[data-tab]').forEach((b) => b.addEventListener('click', () => {
+        sec.querySelectorAll('[data-tab]').forEach((x) => x.classList.toggle('on', x === b));
+        sec.querySelectorAll('[data-pane]').forEach((p) => {
+          const show = p.dataset.pane === b.dataset.tab;
+          p.hidden = !show;
+          if (show) { p.classList.remove('swap'); void p.offsetWidth; p.classList.add('swap'); p.scrollLeft = 0; }
+        });
+      }));
+      sec.querySelectorAll('[data-scroll]').forEach((b) => b.addEventListener('click', () => {
+        const t = sec.querySelector('.track:not([hidden])');
+        if (t) t.scrollBy({ left: parseInt(b.dataset.scroll) * t.clientWidth * 0.85, behavior: 'smooth' });
+      }));
+    });
+    root.querySelectorAll('form[data-clip]').forEach((f) => f.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const b = f.querySelector('button');
+      if (b.disabled) return;
+      b.disabled = true; b.textContent = 'Sending…';
+      try {
+        const r = await fetch(f.getAttribute('action'), { method: 'POST', body: new FormData(f) });
+        const j = await r.json();
+        if (!r.ok || !j.ok) throw new Error(j.msg || 'Could not add it');
+        b.textContent = '✓ In queue'; b.classList.add('done', 'pop');
+        const rect = b.getBoundingClientRect();
+        confetti(rect.left + rect.width / 2, rect.top);
+        toast(`✂ ${j.msg}. Clips land in Review when they're ready.`);
+      } catch (err) {
+        b.disabled = false; b.textContent = '✂ Clip this';
+        toast(err.message, 'bad');
+      }
+    }));
+    const st = window.SXM_TRENDING;
+    if (!st || !st.loading || !document.querySelector('[data-trend]')) return;
+    let tries = 0;
+    trendTimer = setInterval(async () => {
+      if (!document.querySelector('[data-trend]') || ++tries > 60) return clearInterval(trendTimer);
+      try {
+        const j = await (await fetch('/api/trending')).json();
+        if (!j.loading) { clearInterval(trendTimer); go('/trending', {}, false); }
+      } catch (_) {}
+    }, 2500);
+  }
+
   function enhance(root) {
     // Messages passed back after an action pop up as a toast instead of a banner.
     root.querySelectorAll('.toast-src').forEach((n) => { toast(n.textContent.trim()); n.remove(); });
@@ -290,6 +338,7 @@
     });
     root.querySelectorAll('form[data-swipe]').forEach(swipeable);
     importPage(root);
+    trendingPage(root);
     const started = new URLSearchParams(location.search).get('started');
     if (started) toast(started === 'pipeline' ? '⚡ Finding and clipping now. New clips land in Review.' : `Started ${started}.`);
     live();
