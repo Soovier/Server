@@ -176,10 +176,11 @@
 
     // ---------- main chart ----------
     const chart = $('#ax-chart'), tip = chart.querySelector('.ax-tip');
-    const W = 1000, H = 320, P = { l: 48, r: 12, t: 14, b: 30 };
+    let W = 1000, H = 320; const P = { l: 48, r: 12, t: 14, b: 30 };
     let geo = null;
     function paintChart(changed) {
       const fmt = META[metric].fmt, list = chosen(), n = D.labels.length;
+      W = Math.max(300, chart.clientWidth || 1000); H = Math.max(200, chart.clientHeight || 320);  // real pixels, so text stays crisp
       const cur = total(metric, 'cur'), prev = total(metric, 'prev');
       $('#ax-chart-label').textContent = META[metric].label + (metric === 'subs' ? ' gained' : '') + ` · last ${days} days`;
       roll($('#ax-chart-total'), sum(cur), fmt);
@@ -198,16 +199,19 @@
           <defs><linearGradient id="axg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#22d3ee" stop-opacity=".32"/><stop offset="1" stop-color="#22d3ee" stop-opacity="0"/></linearGradient></defs>
           <g class="grid"></g><g class="xl"></g><g class="layers"></g>
           <path class="prev"/><path class="area"/><path class="line" pathLength="1"/>
-          <line class="cross" y1="${P.t}" y2="${H - P.b}"/><circle class="dot" r="5"/></svg>`);
+          <line class="cross" y1="${P.t}" y2="${H - P.b}"/><circle class="dot" r="5" cx="-50" cy="-50"/></svg>`);
         svg = chart.querySelector('svg');
+        let rz = 0; addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => document.body.contains(chart) && paintChart(false), 150); });
         svg.addEventListener('pointermove', hover);
         svg.addEventListener('pointerleave', () => { tip.hidden = true; svg.classList.remove('hovering'); });
       }
+      svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+      const cr0 = svg.querySelector('.cross'); cr0.setAttribute('y1', P.t); cr0.setAttribute('y2', H - P.b);
       svg.querySelector('.grid').innerHTML = [0, .25, .5, .75, 1].map((k) => {
         const v = lo + (hi - lo) * k, yy = y(v);
         return `<line x1="${P.l}" x2="${W - P.r}" y1="${yy}" y2="${yy}"/><text x="${P.l - 10}" y="${yy + 4}">${short(v, fmt)}</text>`;
       }).join('');
-      const step = Math.max(1, Math.ceil(n / 7));
+      const step = Math.max(1, Math.ceil(n / Math.max(3, Math.min(7, Math.floor(W / 110)))));
       svg.querySelector('.xl').innerHTML = D.labels.map((s, i) => (i % step && i !== n - 1) || (i === n - 1 && (n - 1) % step && (n - 1) % step < step / 2)
         ? '' : `<text x="${x(i)}" y="${H - 8}" text-anchor="${i === 0 ? 'start' : i === n - 1 ? 'end' : 'middle'}">${day(s)}</text>`).join('');
       const line = smooth(cur.map((v, i) => [x(i), y(v)]));
