@@ -399,3 +399,167 @@ def scan_status(db: DB, sid: int) -> dict | None:
             "streamer": s.get("streamer") or "", "url": s["url"], "prompt": s.get("find_prompt") or "",
             "waiting": st in ("new", "downloaded"), "ahead": (ahead or {}).get("n", 0),
             "clips": clips, "steps": [{"key": k, "title": t, "sub": d} for k, t, d in SCAN_STEPS]}
+
+
+# ---------------- most viral right now ----------------
+
+VIRAL_S = 180  # cache the board for 3 minutes
+YT_LIVE_SEARCH = "https://www.youtube.com/results?search_query={q}&sp=EgJAAQ%253D%253D"  # filter: Live
+
+
+def _g(d, *path, default=""):
+    for p in path:
+        d = d.get(p) if isinstance(d, dict) else None
+        if d is None:
+            return default
+    return d
+
+
+def _pic(*vals) -> str:
+    for v in vals:
+        if isinstance(v, str) and v.startswith("http"):
+            return v
+        if isinstance(v, dict):
+            for k in ("src", "url", "responsive"):
+                if isinstance(v.get(k), str) and v[k].startswith("http"):
+                    return v[k]
+    return ""
+
+
+def _kick_streams(http: httpx.Client, n: int) -> list[dict]:
+    rows = []
+    try:  # Kick's site API: live streams sorted by viewers
+        r = http.get("https://web.kick.com/api/v1/livestreams", params={"limit": min(n, 24), "sort": "viewer_count_desc"})
+        if r.status_code == 200:
+            for s in _g(r.json(), "data", "livestreams", default=[]) or []:
+                ch = s.get("channel") or {}
+                slug = ch.get("slug") or ch.get("username") or ""
+                rows.append({"platform": "kick", "handle": slug, "name": ch.get("username") or slug,
+                             "avatar": _pic(ch.get("profile_picture"), ch.get("profile_pic"), ch.get("avatar")),
+                             "title": s.get("title") or "", "viewers": s.get("viewer_count") or 0,
+                             "game": _g(s, "category", "name"), "started": s.get("start_time") or "",
+                             "thumb": _pic(s.get("thumbnail")), "url": channel_url("kick", slug)})
+    except Exception as e:
+        log.info("kick web livestreams: %s", e)
+    if not rows:
+        try:
+            r = http.get("https://kick.com/stream/livestreams/en", params={"page": 1, "limit": min(n, 24), "sort": "desc"})
+            if r.status_code == 200:
+                for s in r.json().get("data") or []:
+                    ch = s.get("channel") or {}
+                    slug = ch.get("slug") or ""
+                    rows.append({"platform": "kick", "handle": slug, "name": _g(ch, "user", "username") or slug,
+                                 "avatar": _pic(_g(ch, "user", "profile_pic")), "title": s.get("session_title") or "",
+                                 "viewers": s.get("viewer_count") or s.get("viewers") or 0,
+                                 "game": ((s.get("categories") or [{}])[0] or {}).get("name", ""),
+                                 "started": s.get("start_time") or s.get("created_at") or "",
+                                 "thumb": _pic(s.get("thumbnail")), "url": channel_url("kick", slug)})
+        except Exception as e:
+            log.info("kick livestreams: %s", e)
+    return [r for r in rows if r["handle"]]
+
+
+def _kick_clips(http: httpx.Client, n: int) -> list[dict]:
+    try:
+        r = http.get("https://kick.com/api/v2/clips", params={"sort": "view", "time": "day"})
+        if r.status_code != 200:
+            return []
+        out = []
+        for c in (r.json().get("clips") or [])[:n]:
+            ch = c.get("channel") or {}
+            slug = ch.get("slug") or ch.get("username") or ""
+            out.append({"platform": "kick", "kind": "clip", "id": c.get("id", ""), "title": c.get("title") or "",
+                        "url": f"https://kick.com/{slug}/clips/{c.get('id', '')}", "thumb": c.get("thumbnail_url") or "",
+                        "duration": c.get("duration") or 0, "views": c.get("views") or c.get("view_count") or 0,
+                        "date": c.get("created_at") or "", "handle": slug, "name": ch.get("username") or slug,
+                        "game": _g(c, "category", "name")})
+        return out
+    except Exception as e:
+        log.info("kick clips: %s", e)
+        return []
+
+
+def _twitch_viral(n: int) -> tuple[list[dict], list[dict], str]:
+    """Top live streams and their hottest clips today. Needs your free Twitch app keys."""
+    if not (settings.twitch_client_id and settings.twitch_client_secret):
+        return [], [], "keys"
+    from .discovery import Twitch
+    tw = Twitch(httpx.Client(timeout=20))
+    live = tw.get("streams", first=min(n, 50))
+    users = {}
+    ids = [s["user_id"] for s in live]
+    if ids:
+        r = tw.http.get("https://api.twitch.tv/helix/users", params=[("id", i) for i in ids], headers=tw._auth())
+        users = {u["id"]: u for u in r.json().get("data", [])}
+    rows = [{"platform": "twitch", "handle": s["user_login"], "name": s["user_name"],
+             "avatar": users.get(s["user_id"], {}).get("profile_image_url", ""), "title": s.get("title", ""),
+             "viewers": s.get("viewer_count", 0), "game": s.get("game_name", ""), "started": s.get("started_at", ""),
+             "thumb": (s.get("thumbnail_url") or "").replace("{width}", "640").replace("{height}", "360"),
+             "url": channel_url("twitch", s["user_login"])} for s in live]
+    since = datetime.fromtimestamp(time.time() - 86400, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    def top_clips(s):
+        try:
+            return tw.get("clips", broadcaster_id=s["user_id"], started_at=since, first=3)
+        except Exception:
+            return []
+    clips = []
+    with ThreadPoolExecutor(6) as ex:
+        for s, cs in zip(live[:12], ex.map(top_clips, live[:12])):
+            clips += [{"platform": "twitch", "kind": "clip", "id": c["id"], "title": c["title"], "url": c["url"],
+                       "thumb": c.get("thumbnail_url", ""), "duration": c.get("duration", 0),
+                       "views": c.get("view_count", 0), "date": c.get("created_at", ""), "handle": s["user_login"],
+                       "name": s["user_name"], "game": s.get("game_name", "")} for c in cs]
+    return rows, sorted(clips, key=lambda c: -c["views"])[:n], ""
+
+
+def _youtube_viral(n: int, q: str = "live") -> list[dict]:
+    d = ytdlp_json(YT_LIVE_SEARCH.format(q=quote(q or "live")), flat=True, limit=max(n, 30), timeout=60) or {}
+    rows = []
+    for e in d.get("entries") or []:
+        if not e or e.get("live_status") != "is_live":
+            continue
+        handle = (e.get("uploader_id") or "").lstrip("@") or e.get("channel_id") or ""
+        rows.append({"platform": "youtube", "handle": handle, "name": e.get("channel") or e.get("uploader") or handle,
+                     "avatar": "", "title": e.get("title") or "", "viewers": e.get("concurrent_view_count") or 0,
+                     "game": "", "started": _when(e.get("release_timestamp") or e.get("timestamp")),
+                     "thumb": _thumb(e) or f"https://i.ytimg.com/vi/{e.get('id')}/hqdefault_live.jpg",
+                     "url": f"https://www.youtube.com/watch?v={e.get('id')}", "video_id": e.get("id", "")})
+    return sorted(rows, key=lambda r: -r["viewers"])
+
+
+def viral(platform: str = "all", fresh: bool = False, n: int = 24) -> dict:
+    """The biggest live streams right now (ranked by viewers) and the most watched clips today."""
+    key = f"viral:{platform}"
+    with _lock:
+        hit = _cache.get(key)
+    if hit and not fresh and time.time() - hit[0] < VIRAL_S:
+        return hit[1]
+    want = PLATFORMS if platform == "all" else (platform,)
+    out = {"streams": [], "clips": [], "notes": {}, "platform": platform}
+    hdr = {"User-Agent": UA, "Accept": "application/json"}
+
+    def run(p):
+        try:
+            if p == "kick":
+                with httpx.Client(timeout=20, headers=hdr, follow_redirects=True) as http:
+                    return p, _kick_streams(http, n), _kick_clips(http, n), ""
+            if p == "twitch":
+                s, c, note = _twitch_viral(n)
+                return p, s, c, note
+            return p, _youtube_viral(n), [], ""
+        except Exception as e:
+            log.warning("viral %s: %s", p, e)
+            return p, [], [], "error"
+    with ThreadPoolExecutor(3) as ex:
+        for p, s, c, note in ex.map(run, want):
+            out["streams"] += s
+            out["clips"] += c
+            if note or not s:
+                out["notes"][p] = note or "empty"
+    out["streams"].sort(key=lambda r: -(r["viewers"] or 0))
+    out["clips"].sort(key=lambda r: -(r["views"] or 0))
+    out["checked"] = time.time()
+    with _lock:
+        _cache[key] = (time.time(), out)
+    return out

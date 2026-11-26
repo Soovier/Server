@@ -988,3 +988,29 @@ def test_clip_editor_pages_and_ai_edit(db, monkeypatch, tmp_path):
     row = db.one("SELECT start_s, end_s FROM clips WHERE id=?", (cid,))
     assert (row["start_s"], row["end_s"]) == (110, 130)
     assert c.post(f"/api/clip/{cid}/favorite").json()["favorite"] is True
+
+
+def test_viral_board_ranks_kick_and_youtube(monkeypatch):
+    import httpx as hx
+    from sxm import streams
+    monkeypatch.setattr(settings, "twitch_client_id", "")
+
+    def handler(req):
+        if "web.kick.com" in str(req.url):
+            return hx.Response(200, json={"data": {"livestreams": [
+                {"title": "small", "viewer_count": 10, "channel": {"slug": "b", "username": "B"}, "category": {"name": "Slots"}, "thumbnail": {"src": "https://t/b.jpg"}},
+                {"title": "big", "viewer_count": 900, "channel": {"slug": "a", "username": "A"}, "category": {"name": "IRL"}}]}})
+        if "/api/v2/clips" in str(req.url):
+            return hx.Response(200, json={"clips": [{"id": "c1", "title": "wow", "views": 50, "duration": 30, "channel": {"slug": "a", "username": "A"}}]})
+        return hx.Response(404)
+    real = hx.Client
+    monkeypatch.setattr(streams.httpx, "Client", lambda *a, **k: real(transport=hx.MockTransport(handler), **{x: y for x, y in k.items() if x != "transport"}))
+    monkeypatch.setattr(streams, "ytdlp_json", lambda *a, **k: {"entries": [
+        {"id": "v1", "live_status": "is_live", "concurrent_view_count": 500, "title": "yt", "uploader_id": "@yt", "channel": "YT"},
+        {"id": "v2", "live_status": "was_live", "concurrent_view_count": 9999}]})
+    streams._cache.clear()
+    d = streams.viral("all", fresh=True)
+    assert [s["handle"] for s in d["streams"]] == ["a", "yt", "b"]
+    assert d["streams"][2]["thumb"] == "https://t/b.jpg" and d["streams"][0]["game"] == "IRL"
+    assert d["clips"][0]["url"] == "https://kick.com/a/clips/c1"
+    assert d["notes"] == {"twitch": "keys"}

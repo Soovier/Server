@@ -271,6 +271,12 @@ def api_creator(p: str, h: str, fresh: int = 0, request: Request = None):
     return JSONResponse(d)
 
 
+@app.get("/api/streams/viral")
+def api_viral(p: str = "all", fresh: int = 0):
+    p = p if p in streams.PLATFORMS else "all"
+    return JSONResponse(streams.viral(p, fresh=bool(fresh)))
+
+
 @app.get("/api/streams/live")
 def api_live_board():
     return JSONResponse(streams.live_board(get_db()))

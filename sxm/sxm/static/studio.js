@@ -86,7 +86,116 @@
 
     const cr = $('#st-creator', st);
     if (cr) creator(cr, open);
-    else board(st);
+    else { board(st); viralBoard(st, open); }
+  }
+
+  /* Most viral right now: biggest live streams and most watched clips across platforms */
+  function viralBoard(st, openScan) {
+    const box = $('#viral', st);
+    if (!box) return;
+    const list = $('#sv-list', box), cats = $('#sv-cats', box), msgs = $('#sv-msgs', box), note = $('#sv-note', box);
+    const PN = { twitch: 'Twitch', kick: 'Kick', youtube: 'YouTube' };
+    let plat = 'all', kind = 'live', cat = '', data = null;
+    const ckey = (r) => r.game || '';
+    const since = (d) => { const t = Date.parse(d); if (!t) return ''; const m = Math.round((Date.now() - t) / 60000); return m < 60 ? `${m}m` : `${Math.floor(m / 60)}h ${m % 60}m`; };
+    const page = (r) => `/streams?p=${r.platform}&q=${encodeURIComponent(r.handle)}`;
+    const liveCard = (r, i) => `
+      <div class="sv-card ax-in" style="--i:${Math.min(i, 12)}">
+        <a class="sv-th" href="${r.platform === 'youtube' ? esc(r.url) : page(r)}"${r.platform === 'youtube' ? ' target="_blank" rel="noopener"' : ''}>
+          ${r.thumb ? `<img src="${esc(r.thumb)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : '<i></i>'}
+          <span class="sv-rank">#${i + 1}</span><span class="sv-live">LIVE</span>
+          <em>👁 ${fmtN(r.viewers)}</em>${r.started && since(r.started) ? `<em class="l">${since(r.started)}</em>` : ''}
+        </a>
+        <div class="sv-body">
+          <span class="sv-who"><span class="st-av sm">${r.avatar ? `<img src="${esc(r.avatar)}" alt="" referrerpolicy="no-referrer">` : esc((r.name || '?')[0].toUpperCase())}</span>
+            <b>${esc(r.name)}</b><span class="st-pl ${r.platform}">${PN[r.platform]}</span></span>
+          <span class="sv-title" title="${esc(r.title)}">${esc(r.title)}</span>
+          ${r.game ? `<span class="sv-game">${esc(r.game)}</span>` : ''}
+          <span class="st-acts">
+            ${r.platform !== 'youtube' ? `<button type="button" class="st-clipit" data-hot="${i}">⚡ Clip hottest</button>` : ''}
+            ${r.platform === 'youtube' ? `<a class="btn ghost" href="${esc(r.url)}" target="_blank" rel="noopener">Watch</a>${r.handle && !/^UC/.test(r.handle) ? `<a class="btn ghost" href="${page(r)}">Channel</a>` : ''}` : `<a class="btn ghost" href="${page(r)}">Open</a>`}
+          </span>
+        </div>
+      </div>`;
+    const clipCard = (c, i) => `
+      <div class="sv-card ax-in" style="--i:${Math.min(i, 12)}">
+        <a class="sv-th" href="${esc(c.url)}" target="_blank" rel="noopener">
+          ${c.thumb ? `<img src="${esc(c.thumb)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : '<i></i>'}
+          <span class="sv-rank">#${i + 1}</span>
+          <em>👁 ${fmtN(c.views)}</em>${c.duration ? `<em class="l">${fmtT(c.duration)}</em>` : ''}
+        </a>
+        <div class="sv-body">
+          <span class="sv-who"><b>${esc(c.name)}</b><span class="st-pl ${c.platform}">${PN[c.platform]}</span><small class="muted">${esc(ago(c.date))}</small></span>
+          <span class="sv-title" title="${esc(c.title)}">${esc(c.title || 'Untitled clip')}</span>
+          ${c.game ? `<span class="sv-game">${esc(c.game)}</span>` : ''}
+          <span class="st-acts">
+            <button type="button" class="st-clipit" data-clip="${i}">⚡ Clip it</button>
+            <button type="button" class="ghost" data-opts="${i}" title="Choose layout, length and more">⚙</button>
+          </span>
+        </div>
+      </div>`;
+    function paint() {
+      if (!data) return;
+      const rows = kind === 'live' ? data.streams : data.clips;
+      const counts = {};
+      rows.forEach((r) => { const k = ckey(r); if (k) counts[k] = (counts[k] || 0) + 1; });
+      const top = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 10).map((x) => x[0]);
+      if (cat && !top.includes(cat)) cat = '';
+      cats.innerHTML = top.length > 1 ? [''].concat(top).map((k) =>
+        `<button type="button" class="ghost ${k === cat ? 'on' : ''}" data-cat="${esc(k)}">${k ? esc(k) : 'Everything'}</button>`).join('') : '';
+      const shown = rows.filter((r) => !cat || ckey(r) === cat).slice(0, 24);
+      const m = [];
+      if (data.notes.twitch === 'keys' && (plat === 'all' || plat === 'twitch'))
+        m.push('<div class="sv-msg">Twitch needs your free Twitch app keys to list its top streams. <a href="/setup">Add them in Connect</a> (2 minutes at dev.twitch.tv).</div>');
+      ['kick', 'youtube', 'twitch'].forEach((p) => {
+        if ((plat === 'all' || plat === p) && data.notes[p] === 'error') m.push(`<div class="sv-msg">Couldn't reach ${PN[p]} right now.</div>`);
+      });
+      if (kind === 'clips' && plat === 'youtube') m.push('<div class="sv-msg">YouTube has no live clips list. Switch to Live now.</div>');
+      msgs.innerHTML = m.join('');
+      list.innerHTML = shown.length ? shown.map(kind === 'live' ? liveCard : clipCard).join('') : '<p class="muted">Nothing to show here right now.</p>';
+      const total = shown.reduce((a, r) => a + (r.viewers || 0), 0);
+      note.textContent = kind === 'live'
+        ? `${shown.length} streams · ${fmtN(total)} watching · checked ${new Date(data.checked * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
+        : 'Most watched clips from the last 24 hours';
+      $$('[data-hot]', list).forEach((b) => b.addEventListener('click', async () => {
+        const r = shown[+b.dataset.hot];
+        b.disabled = true; b.textContent = 'Finding it…';
+        try {
+          const d = await (await fetch(`/api/streams/creator?p=${r.platform}&h=${encodeURIComponent(r.handle)}`)).json();
+          const c = (d.clips || [])[0];
+          if (!c) { toast(`${r.name} has no clips from today yet. Opening their page.`); nav(page(r)); return; }
+          quickClip({ url: c.url, title: c.title, streamer: r.handle, platform: r.platform, duration: c.duration }, b);
+        } catch (_) { b.disabled = false; b.textContent = '⚡ Clip hottest'; toast('Could not reach ' + PN[r.platform], 'bad'); }
+      }));
+      $$('[data-clip]', list).forEach((b) => b.addEventListener('click', () => {
+        const c = shown[+b.dataset.clip];
+        quickClip({ url: c.url, title: c.title, streamer: c.handle, platform: c.platform, duration: c.duration }, b);
+      }));
+      $$('[data-opts]', list).forEach((b) => b.addEventListener('click', () => {
+        const c = shown[+b.dataset.opts];
+        openScan({ url: c.url, title: c.title, streamer: c.handle, platform: c.platform, duration: c.duration });
+      }));
+    }
+    cats.addEventListener('click', (e) => { const b = e.target.closest('[data-cat]'); if (b) { cat = b.dataset.cat; paint(); } });
+    async function load(fresh) {
+      list.classList.add('loading');
+      try {
+        data = await (await fetch(`/api/streams/viral?p=${plat}${fresh ? '&fresh=1' : ''}`)).json();
+        paint();
+      } catch (_) { list.innerHTML = '<p class="muted">Couldn\'t load the viral board. Try ↻.</p>'; }
+      finally { list.classList.remove('loading'); }
+    }
+    $$('#sv-plat button', box).forEach((b) => b.addEventListener('click', () => {
+      $$('#sv-plat button', box).forEach((x) => x.classList.toggle('on', x === b));
+      plat = b.dataset.vp; cat = ''; load(false);
+    }));
+    $$('#sv-kind button', box).forEach((b) => b.addEventListener('click', () => {
+      $$('#sv-kind button', box).forEach((x) => x.classList.toggle('on', x === b));
+      kind = b.dataset.vk; cat = ''; paint();
+    }));
+    $('#sv-refresh', box).addEventListener('click', () => load(true));
+    load(false);
+    every('viral', 180000, () => load(false), () => document.body.contains(box));
   }
 
   function board(st) {

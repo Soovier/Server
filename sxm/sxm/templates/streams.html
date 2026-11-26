@@ -36,7 +36,29 @@
     </div>
   </section>
   {% else %}
-  <section class="ax-card st-board ax-in" style="--i:2">
+  <section class="ax-card st-viral ax-in" style="--i:2" id="viral">
+    <div class="st-v-head">
+      <div><h2 class="ax-h">🔥 Most viral right now</h2><span class="ax-k" id="sv-note">Ranked by live viewers</span></div>
+      <div class="st-v-tools">
+        <div class="ax-seg sm" id="sv-plat" role="tablist" aria-label="Platform">
+          {% for k, label in [('all','All'),('twitch','Twitch'),('kick','Kick'),('youtube','YouTube')] %}
+          <button type="button" data-vp="{{ k }}" class="{{ 'on' if loop.first }}">{{ label }}</button>{% endfor %}
+        </div>
+        <div class="ax-seg sm" id="sv-kind" role="tablist" aria-label="Show">
+          <button type="button" data-vk="live" class="on">Live now</button>
+          <button type="button" data-vk="clips">Top clips today</button>
+        </div>
+        <button type="button" class="ghost st-v-ref" id="sv-refresh" title="Check again">↻</button>
+      </div>
+    </div>
+    <div class="st-cats" id="sv-cats"></div>
+    <div class="st-v-msgs" id="sv-msgs"></div>
+    <div class="st-v-list" id="sv-list">
+      {% for i in range(8) %}<i class="sk st-v-sk"></i>{% endfor %}
+    </div>
+  </section>
+
+  <section class="ax-card st-board ax-in" style="--i:3">
     <div class="ax-sec-head"><h2 class="ax-h">Your streamers</h2><span class="ax-k" id="st-board-note">Checking who's live…</span></div>
     {% if favs %}
     <div class="st-favs" id="st-favs">
@@ -50,7 +72,7 @@
     <p class="muted">Search a streamer above and tap ☆ to keep them here. Anyone who's live floats to the top.</p>
     {% endif %}
   </section>
-  <div class="st-how ax-in" style="--i:3">
+  <div class="st-how ax-in" style="--i:4">
     <div><b>⚡ Hot right now</b><span>Open a streamer to see the clips chat made in the last day. One tap turns one into a Short.</span></div>
     <div><b>🎯 Quick Find</b><span>Remember a moment? Describe it and SXM finds just that part, no full download.</span></div>
     <div><b>✂️ Edit with AI</b><span>Every clip opens in the editor. Say "start 3 seconds later" and it re-cuts it.</span></div>

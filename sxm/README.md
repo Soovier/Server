@@ -172,3 +172,7 @@ Every clip opens in the **editor** (✂️ Edit on Review, Inventory and Downloa
 gameplay boxes, pick 9:16 / 4:5 / 1:1 / 16:9, captions, 720/1080p and 30/60fps, with a live preview and undo/redo.
 **Edit with AI** takes plain asks like "start right before the jump scare and make the hook punchier" and re-renders the clip.
 Twitch lookups use your Twitch API keys when set, otherwise yt-dlp.
+
+**Most viral right now** (top of Streams): the biggest live streams on Kick, Twitch and YouTube ranked by viewers, filter by
+category, and the most watched clips of the last 24 hours. "⚡ Clip hottest" grabs that streamer's top clip from today and
+turns it into a Short. Kick and YouTube work with no keys; Twitch needs your free TWITCH_CLIENT_ID / TWITCH_CLIENT_SECRET.
