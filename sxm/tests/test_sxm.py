@@ -883,3 +883,44 @@ def test_analytics_page_renders(db):
     assert r.status_code == 200 and "Analytics" in r.text and "Real Channel" in r.text and "Top videos" in r.text
     assert c.get("/stats", follow_redirects=False).status_code == 307
     assert c.get("/").status_code == 200
+
+
+def test_analytics_combines_any_channels(db):
+    from fastapi.testclient import TestClient
+    from sxm import channel_stats
+    from sxm.web import app
+    from datetime import date
+    a = db.save_channel("youtube", "UCa", enabled=True, name="A", access_token="T", expires_at="2999-01-01T00:00:00+00:00")
+    b = db.save_channel("youtube", "UCb", enabled=True, name="B", access_token="T", expires_at="2999-01-01T00:00:00+00:00")
+    channel_stats._tables(db)
+    today = date.today().isoformat()
+    for cid, v in ((a, 100), (b, 50)):
+        db.run("INSERT INTO channel_daily (channel_id, day, views, watch_min, subs_gained, subs_lost, likes, comments, shares, revenue)"
+               " VALUES (?,?,?,?,?,?,?,?,?,?)", (cid, today, v, 60, 3, 1, 5, 0, 0, 1.5))
+    d = channel_stats.dashboard(db, 7)
+    by = {c["id"]: c for c in d["channels"]}
+    assert len(d["labels"]) == 7 and by[a]["cur"]["views"][-1] == 100 and by[b]["cur"]["subs"][-1] == 2
+    assert by[a]["color"] != by[b]["color"]
+    c = TestClient(app)
+    j = c.get("/api/analytics?days=7").json()
+    assert sum(sum(ch["cur"]["views"]) for ch in j["channels"]) == 150
+    r = c.get(f"/analytics?days=7&ch={a}")
+    assert r.status_code == 200 and "Combined views" in r.text and f'"sel": [{a}]' in r.text
+
+
+def test_cancel_stops_queued_and_running_jobs(db):
+    from fastapi.testclient import TestClient
+    from sxm import clipper, importer
+    from sxm.web import app
+    waiting = db.insert("sources", {"platform": "youtube", "external_id": "c1", "url": "https://youtu.be/x1", "status": "new", "priority": 10, "found_at": utcnow()})
+    running = db.insert("sources", {"platform": "youtube", "external_id": "c2", "url": "https://youtu.be/x2", "status": "downloading", "priority": 10, "found_at": utcnow()})
+    c = TestClient(app)
+    assert c.post(f"/api/cancel/{waiting}").json()["ok"]
+    assert db.one("SELECT status, progress FROM sources WHERE id=?", (waiting,)) == {"status": "skipped", "progress": "Cancelled"}
+    assert importer.cancel(db, running)
+    assert running in clipper._CANCEL
+    # the running job stops at its next step and is marked cancelled
+    with pytest.raises(clipper.Cancelled):
+        clipper.check_cancel(running)
+    clipper._CANCEL.discard(running)
+    assert not c.post(f"/api/cancel/{waiting}").json()["ok"]  # already gone

@@ -155,4 +155,8 @@ Every place that makes clips (Import, campaign finder, Auto-post from Trending) 
 
 ## Analytics
 
-The Analytics tab (it used to be called Stats) shows live numbers for every connected YouTube channel, not just the clips SXM posted. Every 3 hours SXM reads each channel's subscribers, total views and video count from the YouTube Data API, the daily views, watch time, subscribers, likes and revenue from the YouTube Analytics API, and the top videos. Press **Refresh** to pull them right away. YouTube's daily numbers run about 2 days behind. Pick 7D, 28D, 90D or 1Y, or filter to one channel. If a channel can't be read, its row shows why (usually reconnecting it on the Connect page fixes it).
+The Analytics tab (it used to be called Stats) shows live numbers for every connected YouTube channel, not just the clips SXM posted. Every 3 hours SXM reads each channel's subscribers, total views and video count from the YouTube Data API, the daily views, watch time, subscribers, likes and revenue from the YouTube Analytics API, and the top videos. Press **Refresh** to pull them right away. YouTube's daily numbers run about 2 days behind. Pick 7D, 28D, 90D or 12M. Tick any set of channels at the top and every number, the chart, the channel table, the best-day chart and the top videos combine just those channels ("Combined views" shows the total). Click a KPI card to chart it, switch the chart to **By channel** to see each channel stacked, and toggle the dashed previous-period line. If a channel can't be read, its row shows why (usually reconnecting it on the Connect page fixes it).
+
+## Cancel
+
+Anything downloading, being clipped or waiting in line has a **Cancel** button on the Import queue and the Inventory board. Tap it twice (the second tap confirms). A running download is stopped right away; a clip job stops at its next step. Clips that were already finished stay in Review.

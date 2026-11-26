@@ -60,7 +60,7 @@
       <div class="q-actions">
         {% if q.to_review %}<a class="btn" href="/review">Review {{ q.to_review }} →</a>{% endif %}
         {% if q.state == 'failed' or q.state == 'removed' %}<form method="post" action="/import/{{ q.id }}/retry" class="inline"><button class="ghost">Retry</button></form>{% endif %}
-        {% if q.state == 'waiting' %}<form method="post" action="/import/{{ q.id }}/remove" class="inline"><button class="ghost icon" title="Remove">✕</button></form>{% endif %}
+        {% if q.state in ('waiting', 'working') %}<button type="button" class="ghost cancel-btn" data-cancel="{{ q.id }}" title="Cancel and remove from the queue">✕ Cancel</button>{% endif %}
       </div>
     </div>
     {% else %}

@@ -293,3 +293,55 @@ def overview(db: DB, days: int = 28, channel_id: int | None = None) -> dict:
         "has_data": bool(rows) or any(c["subscribers"] or c["total_views"] for c in channels),
         "synced": last_synced(db),
     }
+
+
+PALETTE = ["#22d3ee", "#a78bfa", "#f472b6", "#fbbf24", "#34d399", "#60a5fa", "#fb923c", "#e879f9"]
+METRICS = ("views", "watch_h", "subs", "likes", "revenue")
+
+
+def dashboard(db: DB, days: int = 28) -> dict:
+    """Everything for the Analytics page, per channel, so the page can combine any set of channels
+    (and the previous period, for comparison) instantly without asking the server again."""
+    _tables(db)
+    chans = [c for c in db.channels() if c.get("access_token") or c.get("enabled")]
+    start, prev, _ = _period(days)
+    d0, p0 = date.fromisoformat(start), date.fromisoformat(prev)
+    labels = [(d0 + timedelta(days=i)).isoformat() for i in range(days)]
+    ids = [c["id"] for c in chans] or [-1]
+    marks = ",".join("?" * len(ids))
+    rows = db.q(f"SELECT * FROM channel_daily WHERE channel_id IN ({marks}) AND day>=?", (*ids, prev))
+    data: dict[int, dict] = {c["id"]: {m: [[0.0] * days, [0.0] * days] for m in METRICS} for c in chans}
+    for r in rows:
+        dd = date.fromisoformat(r["day"])
+        cur = (dd - d0).days
+        idx, half = (cur, 0) if cur >= 0 else ((dd - p0).days, 1)
+        if not 0 <= idx < days or r["channel_id"] not in data:
+            continue
+        vals = {"views": r["views"] or 0, "watch_h": (r["watch_min"] or 0) / 60,
+                "subs": (r["subs_gained"] or 0) - (r["subs_lost"] or 0), "likes": r["likes"] or 0,
+                "revenue": r["revenue"] or 0}
+        for m, v in vals.items():
+            data[r["channel_id"]][m][half][idx] += v
+    channels = []
+    for i, c in enumerate(chans):
+        e = _extra(c)
+        d = data[c["id"]]
+        channels.append({
+            "id": c["id"], "name": c["name"], "platform": c["platform"], "avatar": c.get("avatar") or "",
+            "color": PALETTE[i % len(PALETTE)], "subscribers": e.get("subscribers", 0),
+            "total_views": e.get("total_views", 0), "videos": e.get("videos", 0),
+            "error": e.get("sync_error"), "synced_at": e.get("synced_at"),
+            "cur": {m: [round(x, 2) for x in d[m][0]] for m in METRICS},
+            "prev": {m: [round(x, 2) for x in d[m][1]] for m in METRICS},
+        })
+    vids = db.q(f"""SELECT v.channel_id, v.video_id, v.title, v.thumb, v.published, v.views, v.likes, v.comments,
+                           v.period_views, v.duration_s, c.name channel_name
+                    FROM channel_videos v JOIN channels c ON c.id=v.channel_id
+                    WHERE v.channel_id IN ({marks}) ORDER BY v.period_views DESC, v.views DESC LIMIT 80""", tuple(ids))
+    from .campaigns import estimated_earnings
+    camp = estimated_earnings(db)
+    return {
+        "days": days, "labels": labels, "channels": channels, "videos": vids,
+        "campaign_income": round(max(sum(c["estimated"] for c in camp), sum(c["paid"] for c in camp)), 2),
+        "synced": last_synced(db),
+    }

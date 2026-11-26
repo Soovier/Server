@@ -122,25 +122,29 @@ def _sync_stats_bg() -> bool:
     return True
 
 
+def _ch_ids(ch: str) -> list[int]:
+    return [int(x) for x in str(ch or "").split(",") if x.strip().isdigit()]
+
+
 @app.get("/analytics", response_class=HTMLResponse)
-def analytics_page(request: Request, days: int = 28, ch: int = 0, msg: str = ""):
+def analytics_page(request: Request, days: int = 28, ch: str = "", msg: str = ""):
     db = get_db()
     days = days if days in (7, 28, 90, 365) else 28
-    o = channel_stats.overview(db, days, ch or None)
-    if not o["synced"]:
+    d = channel_stats.dashboard(db, days)
+    if not d["synced"]:
         _sync_stats_bg()  # first visit: fetch the real numbers now
+    d["syncing"] = _stats_lock.locked()
     s = analytics.summary(db, days)
-    rows = analytics.post_rows(db, None, days, channel_id=ch or None)
-    return page(request, "analytics.html", nav="analytics", o=o, s=s, rows=rows[:50], days=days, ch=ch, msg=msg,
-                syncing=_stats_lock.locked(), all_channels=channel_stats.overview(db, days)["channels"],
-                synced_ago=home._ago(o["synced"]) if o["synced"] else "")
+    rows = analytics.post_rows(db, None, days)
+    return page(request, "analytics.html", nav="analytics", d=d, s=s, rows=rows[:50], days=days,
+                sel=_ch_ids(ch), msg=msg, syncing=d["syncing"])
 
 
 @app.get("/api/analytics")
-def api_analytics(days: int = 28, ch: int = 0):
-    o = channel_stats.overview(get_db(), days if days in (7, 28, 90, 365) else 28, ch or None)
-    o["syncing"] = _stats_lock.locked()
-    return JSONResponse(o)
+def api_analytics(days: int = 28):
+    d = channel_stats.dashboard(get_db(), days if days in (7, 28, 90, 365) else 28)
+    d["syncing"] = _stats_lock.locked()
+    return JSONResponse(d)
 
 
 @app.post("/analytics/refresh")
@@ -559,9 +563,17 @@ def import_action(source_id: int, action: str):
         importer.retry(db, source_id)
     elif action == "remove":
         importer.remove(db, source_id)
+    elif action == "cancel":
+        importer.cancel(db, source_id)
     else:
         raise HTTPException(404)
     return RedirectResponse("/import", 303)
+
+
+@app.post("/api/cancel/{source_id}")
+def api_cancel(source_id: int):
+    ok = importer.cancel(get_db(), source_id)
+    return JSONResponse({"ok": ok, "msg": "Cancelled" if ok else "Nothing to cancel"})
 
 
 def _remember_import_prefs(db, streamer: str, layout: str, clips: int, min_s: int = 0, max_s: int = 0) -> None:

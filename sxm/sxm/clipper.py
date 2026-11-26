@@ -57,9 +57,35 @@ class Moment:
         return " ".join(w.text.strip() for w in self.words)
 
 
+# ---------------- cancel ----------------
+
+class Cancelled(Exception):
+    """The user pressed Cancel on a download or clip job."""
+
+
+_CANCEL: set[int] = set()
+_PROCS: dict[int, subprocess.Popen] = {}
+
+
+def cancel(source_id: int) -> None:
+    """Stop a running download/clip job: kill its download and stop before the next step."""
+    _CANCEL.add(source_id)
+    proc = _PROCS.get(source_id)
+    if proc and proc.poll() is None:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+
+
+def check_cancel(source_id: int | None) -> None:
+    if source_id is not None and source_id in _CANCEL:
+        raise Cancelled()
+
+
 # ---------------- download ----------------
 
-def download(url: str, dest_dir: Path, max_height: int = 1080, on_progress=None) -> Path:
+def download(url: str, dest_dir: Path, max_height: int = 1080, on_progress=None, job: int | None = None) -> Path:
     """Download with yt-dlp (Twitch, YouTube, Kick and most sites).
     on_progress(percent, eta_seconds) is called as it goes, so the app can show time left."""
     ytdlp = shutil.which("yt-dlp")
@@ -73,6 +99,8 @@ def download(url: str, dest_dir: Path, max_height: int = 1080, on_progress=None)
                "--print", "after_move:filepath", url]
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
                                 encoding="utf-8", errors="replace")
+        if job is not None:
+            _PROCS[job] = proc
         lines: list[str] = []
         for line in proc.stdout:  # type: ignore[union-attr]
             line = line.strip()
@@ -82,6 +110,9 @@ def download(url: str, dest_dir: Path, max_height: int = 1080, on_progress=None)
                 lines.append(line)
                 del lines[:-40]
         proc.wait()
+        if job is not None:
+            _PROCS.pop(job, None)
+        check_cancel(job)
         if proc.returncode != 0:
             raise RuntimeError("yt-dlp failed: " + "\n".join(lines)[-600:])
         paths = [l for l in lines if Path(l).suffix and Path(l).exists()]
@@ -89,6 +120,7 @@ def download(url: str, dest_dir: Path, max_height: int = 1080, on_progress=None)
     import yt_dlp  # type: ignore
 
     def hook(d):
+        check_cancel(job)
         if d.get("status") == "downloading":
             total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
             pct = f"{100 * d.get('downloaded_bytes', 0) / total:.1f}%" if total else "NA"
@@ -352,7 +384,10 @@ def clip_source(db: DB, source_id: int, renderer=render_clip) -> list[int]:
     camp = db.one("SELECT * FROM campaigns WHERE id=?", (src["campaign_id"],)) if src["campaign_id"] else None
     want = int(src.get("clips_wanted") or settings.clips_per_source)
 
+    _CANCEL.discard(source_id)
+
     def step(msg: str, **extra) -> None:
+        check_cancel(source_id)
         db.update("sources", source_id, progress=msg, **extra)
     try:
         path = Path(src["local_path"]) if src.get("local_path") and Path(src["local_path"]).exists() else None
@@ -365,7 +400,7 @@ def clip_source(db: DB, source_id: int, renderer=render_clip) -> list[int]:
                     return
                 last[0] = time.time()
                 step(f"Downloading {pct:.0f}% · {eta_text(eta)}" if pct is not None else "Downloading the video")
-            path = download(src["url"], settings.media_dir / "sources", on_progress=dl_progress)
+            path = download(src["url"], settings.media_dir / "sources", on_progress=dl_progress, job=source_id)
             db.update("sources", source_id, local_path=str(path), status="downloaded")
         step("Finding the best moments", status="clipping", error=None)
         duration = probe_duration(path) or float(src.get("duration_s") or 0)
@@ -432,6 +467,9 @@ def clip_source(db: DB, source_id: int, renderer=render_clip) -> list[int]:
                 "copyright_risk": risk,
             })
             out = settings.media_dir / "clips" / f"clip_{clip_id}.mp4"
+            if source_id in _CANCEL:
+                db.run("DELETE FROM clips WHERE id=?", (clip_id,))
+                raise Cancelled()
             try:
                 renderer(path, out, m.start, m.end, m.words, m.hook, mode=mode, brand=settings.brand_handle,
                          facecam=cam, bars=bars, punches=punches[:6])
@@ -443,9 +481,14 @@ def clip_source(db: DB, source_id: int, renderer=render_clip) -> list[int]:
                 ids.append(clip_id)
             except Exception as e:
                 db.update("clips", clip_id, status="failed", review_note=str(e)[:500])
+        _CANCEL.discard(source_id)
         db.update("sources", source_id, status="clipped", clips_made=len(ids),
                   progress=f"Done: {len(ids)} clip{'s' if len(ids) != 1 else ''} ready to review")
         return ids
+    except Cancelled:
+        db.run("DELETE FROM clips WHERE source_id=? AND status='rendering'", (source_id,))
+        db.update("sources", source_id, status="skipped", priority=0, progress="Cancelled", error=None)
+        return []
     except Exception as e:
         db.update("sources", source_id, status="failed", error=str(e)[:500], progress="Failed")
         return []

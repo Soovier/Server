@@ -72,7 +72,8 @@
     {% for r in c['items'] %}
       {% if c.key in ('queued', 'processing') %}
       <div class="inv-item {{ r.status }}">
-        <b class="ellipsis" title="{{ r.name }}">{{ r.name }}</b>
+        <div class="inv-top"><b class="ellipsis" title="{{ r.name }}">{{ r.name }}</b>
+          <button type="button" class="ghost cancel-btn sm" data-cancel="{{ r.id }}" title="Cancel and remove">✕ Cancel</button></div>
         <span class="muted small">{{ r.streamer or r.platform }}{% if r.autopost_id %} · 🤖 for auto-post{% endif %}</span>
         <div class="q-bar {{ 'indet' if c.key == 'processing' or (r.status == 'downloading' and not r.pct) }}"><i style="width:{{ r.pct or 0 }}%"></i></div>
         <span class="small {{ 'hot' if r.status == 'downloading' }}">{{ r.line }}</span>

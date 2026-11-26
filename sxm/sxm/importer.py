@@ -126,6 +126,22 @@ def remove(db: DB, source_id: int) -> None:
     db.update("sources", source_id, status="skipped", progress="Removed from the queue")
 
 
+def cancel(db: DB, source_id: int) -> bool:
+    """Cancel button: stop a download or clip job that is running, or drop one that is waiting."""
+    from .clipper import cancel as stop_job
+    src = db.one("SELECT status FROM sources WHERE id=?", (source_id,))
+    if not src:
+        return False
+    if src["status"] in ("downloading", "clipping"):
+        stop_job(source_id)
+        db.update("sources", source_id, progress="Cancelling…", priority=0)
+    elif src["status"] in ("new", "downloaded"):
+        db.update("sources", source_id, status="skipped", priority=0, progress="Cancelled")
+    else:
+        return False
+    return True
+
+
 def queue(db: DB, limit: int = 60) -> list[dict]:
     rows = db.q("""SELECT s.*, (SELECT COUNT(*) FROM clips c WHERE c.source_id=s.id AND c.status='pending_review') to_review
                    FROM sources s WHERE s.priority>0 OR s.status IN ('downloading','clipping')

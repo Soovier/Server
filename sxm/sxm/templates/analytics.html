@@ -1,137 +1,140 @@
 {% extends "base.html" %}
 {% block content %}
-<section class="an-hero reveal">
-  <div class="aurora"><i></i><i></i><i></i></div>
-  <div class="an-top">
+<div class="ax" id="ax">
+  <div class="ax-glow" aria-hidden="true"></div>
+
+  <div class="ax-head ax-in" style="--i:0">
     <div>
-      <h1 class="an-title">Analytics</h1>
-      <p class="muted an-sub">
-        {% if syncing %}<span class="live"></span> Pulling your latest numbers…
-        {% elif o.synced %}<span class="live"></span> Live from {{ all_channels|length }} channel{{ 's' if all_channels|length != 1 }} · updated {{ synced_ago }}
-        {% else %}Not synced yet{% endif %}
-      </p>
+      <h1 class="ax-title">Analytics</h1>
+      <p class="ax-sub"><span class="ax-live {{ 'busy' if syncing }}"></span><span id="ax-status">
+        {% if syncing %}Pulling your latest numbers…{% elif d.synced %}Live from {{ d.channels|length }} channel{{ 's' if d.channels|length != 1 }}{% else %}Not synced yet{% endif %}</span></p>
     </div>
-    <div class="an-actions">
-      <div class="seg">
-        {% for d, label in [(7,'7D'),(28,'28D'),(90,'90D'),(365,'1Y')] %}<a href="/analytics?days={{ d }}&ch={{ ch }}" class="{{ 'on' if days == d }}">{{ label }}</a>{% endfor %}
+    <div class="ax-tools">
+      <div class="ax-seg" id="ax-range" role="tablist" aria-label="Date range">
+        <span class="ax-seg-ind" aria-hidden="true"></span>
+        {% for v, label in [(7,'7D'),(28,'28D'),(90,'90D'),(365,'12M')] %}
+        <button type="button" role="tab" data-days="{{ v }}" class="{{ 'on' if days == v }}">{{ label }}</button>{% endfor %}
       </div>
-      <form method="post" action="/analytics/refresh" class="inline"><input type="hidden" name="back" value="/analytics?days={{ days }}&ch={{ ch }}">
-        <button class="ghost refresh {{ 'spin' if syncing }}" {% if syncing %}disabled{% endif %}><span>↻</span> Refresh</button></form>
+      <form method="post" action="/analytics/refresh" class="inline" id="ax-refresh-form">
+        <input type="hidden" name="back" value="/analytics?days={{ days }}">
+        <button class="ax-icon-btn {{ 'spin' if syncing }}" title="Pull the latest numbers now" {% if syncing %}disabled{% endif %}>
+          <svg viewBox="0 0 24 24" width="16" height="16"><path d="M20 12a8 8 0 1 1-2.34-5.66M20 4v5h-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span>Refresh</span></button>
+      </form>
     </div>
   </div>
-  {% if all_channels %}
-  <div class="ch-filter">
-    <a href="/analytics?days={{ days }}" class="cf {{ 'on' if not ch }}"><span class="cf-all">★</span>All channels</a>
-    {% for c in all_channels %}
-    <a href="/analytics?days={{ days }}&ch={{ c.id }}" class="cf {{ 'on' if ch == c.id }}">
-      {% if c.avatar %}<img src="{{ c.avatar }}" alt="" referrerpolicy="no-referrer">{% else %}<span class="cf-all">{{ c.name[:1] }}</span>{% endif %}{{ c.name }}</a>
-    {% endfor %}
+  {% if msg %}<div class="notice toast-src">{{ msg }}</div>{% endif %}
+
+  {% if not d.channels %}
+  <div class="ax-card ax-empty ax-in" style="--i:1">
+    <div class="ax-empty-art"><i></i><i></i><i></i></div>
+    <b>Connect a channel to see your analytics</b>
+    <p class="muted">Your real views, subscribers and watch time show up here as soon as a channel is connected.</p>
+    <a class="btn" href="/setup">Connect a channel</a>
   </div>
-  {% endif %}
-</section>
-{% if msg %}<div class="notice toast-src">{{ msg }}</div>{% endif %}
+  {% else %}
 
-{% if not all_channels %}
-<div class="card an-empty reveal"><span class="big-emoji">🔌</span><div><b>Connect a channel to see your analytics.</b>
-  <div class="muted">Your real views, subscribers and watch time show up here the moment a channel is connected.</div>
-  <a class="btn" href="/setup" style="margin-top:10px">Connect a channel →</a></div></div>
-{% else %}
+  <section class="ax-card ax-picker ax-in" style="--i:1">
+    <div class="ax-picker-top">
+      <div class="ax-chips" id="ax-chips" role="group" aria-label="Channels">
+        <button type="button" class="ax-chip all" data-all>All channels</button>
+        {% for c in d.channels %}
+        <button type="button" class="ax-chip" data-ch="{{ c.id }}" style="--c:{{ c.color }}" aria-pressed="true">
+          <span class="ax-check"><svg viewBox="0 0 12 12"><path d="M2.5 6.2 5 8.6 9.5 3.6"/></svg></span>
+          {% if c.avatar %}<img src="{{ c.avatar }}" alt="" referrerpolicy="no-referrer">{% else %}<span class="ax-av">{{ c.name[:1] }}</span>{% endif %}
+          <span class="ax-chip-name">{{ c.name }}</span>
+        </button>{% endfor %}
+      </div>
+      <div class="ax-combined">
+        <span class="ax-k">Combined views</span>
+        <b class="ax-num" id="ax-combined">0</b>
+        <span class="ax-k" id="ax-combined-sub">across all channels</span>
+      </div>
+    </div>
+    <div class="ax-share" id="ax-share" aria-label="Share of views"></div>
+    <div class="ax-share-legend" id="ax-share-legend"></div>
+  </section>
 
-{% for c in o.channels if c.error %}
-<div class="notice warn-note">⚠️ <b>{{ c.name }}</b>: {{ c.error }}{% if 'expired' in c.error or '401' in c.error %} · <a href="/setup">reconnect it</a>{% endif %}</div>
-{% endfor %}
-{% if syncing and not o.has_data %}
-<div class="card syncing-card"><div class="radar"><i></i><i></i><i></i><span>📈</span></div><div><b>Getting your numbers from YouTube…</b><div class="muted small">A few seconds per channel. This page fills in by itself.</div></div></div>
-{% endif %}
-
-<div class="kpis">
-  {% for k in o.kpis %}
-  <div class="card kpi2 tilt" style="--i:{{ loop.index }}">
-    <div class="kpi-head"><span class="kpi-icon">{{ k.icon }}</span><span class="kpi-label">{{ k.label }}</span>
-      {% if k.delta is not none %}<span class="pillx {{ 'pos' if k.delta >= 0 else 'neg' }}">{{ '▲' if k.delta >= 0 else '▼' }} {{ k.delta|abs }}%</span>{% endif %}</div>
-    <div class="kpi-value" data-count="{{ k.value }}" data-fmt="{{ k.fmt }}">0</div>
-    <div class="muted small kpi-sub">{{ k.sub or ('vs the ' ~ days ~ ' days before' if k.delta is not none else 'last ' ~ days ~ ' days') }}</div>
-    <svg class="kpi-spark" viewBox="0 0 100 30" preserveAspectRatio="none" data-kspark="{{ k.key }}"></svg>
-  </div>
+  {% for c in d.channels if c.error %}
+  <div class="ax-note">⚠️ <b>{{ c.name }}</b>: {{ c.error }} · <a href="/setup">reconnect</a></div>
   {% endfor %}
-</div>
 
-<section class="card chart-card reveal tilt-soft">
-  <div class="chart-head">
-    <div><h2 class="plain">Performance</h2><span class="muted small">Daily, last {{ days }} days. YouTube's numbers run about 2 days behind.</span></div>
-    <div class="seg chart-tabs" role="tablist">
-      {% for key, label in [('views','Views'),('watch_h','Watch hours'),('subs','Subscribers'),('likes','Likes')] %}
-      <button type="button" class="{{ 'on' if loop.first }}" data-metric="{{ key }}">{{ label }}</button>{% endfor %}
-    </div>
-  </div>
-  <div class="chart" id="main-chart"><div class="chart-tip" hidden></div></div>
-</section>
-
-<div class="an-split">
-  <section class="card reveal">
-    <h2 class="plain">Channels</h2>
-    <div class="leader">
-      {% for c in o.channels %}
-      <a class="lrow" href="/analytics?days={{ days }}&ch={{ c.id }}" style="--i:{{ loop.index }}">
-        <span class="lrank">{{ loop.index }}</span>
-        {% if c.avatar %}<img src="{{ c.avatar }}" alt="" referrerpolicy="no-referrer">{% else %}<span class="lav">{{ c.name[:1] }}</span>{% endif %}
-        <span class="lmain"><b class="ellipsis">{{ c.name }}</b>
-          <span class="muted small"><span class="t-dot {{ c.platform }}"></span><b class="w" data-count="{{ c.subscribers }}" data-fmt="num">0</b> subs · {{ c.videos }} videos{% if c.subs_net %} · <span class="{{ 'up-text' if c.subs_net > 0 else 'down-text' }}">{{ '+' if c.subs_net > 0 }}{{ c.subs_net }}</span>{% endif %}</span>
-          <span class="share"><i style="--w:{{ c.share }}%"></i></span></span>
-        <svg class="lspark" viewBox="0 0 100 30" preserveAspectRatio="none" data-spark="{{ c.spark|tojson }}"></svg>
-        <span class="lviews"><b data-count="{{ c.views }}" data-fmt="num">0</b><span class="muted small">views · {{ c.share }}%</span></span>
-      </a>
-      {% endfor %}
-    </div>
-  </section>
-  <section class="card reveal">
-    <h2 class="plain">Best day to post</h2>
-    <span class="muted small">Average views per day of the week</span>
-    {% set mx = (o.weekdays|map(attribute='avg')|max) or 1 %}
-    <div class="wbars">
-      {% for w in o.weekdays %}
-      <div class="wbar {{ 'best' if w.avg == mx and mx > 1 }}" style="--h:{{ (w.avg / mx * 100)|round(1) }}%;--i:{{ loop.index }}" title="{{ w.avg|num }} avg views">
-        <span class="wv">{{ w.avg|num }}</span><i></i><span class="wd">{{ w.day }}</span></div>
-      {% endfor %}
-    </div>
-    <div class="lifetime">
-      <div><span class="muted small">Lifetime views</span><b data-count="{{ o.lifetime_views }}" data-fmt="num">0</b></div>
-      <div><span class="muted small">Videos</span><b data-count="{{ o.channels|sum(attribute='videos') }}" data-fmt="num">0</b></div>
-    </div>
-  </section>
-</div>
-
-{% if o.videos %}
-<section class="reveal">
-  <h2>Top videos <span class="muted small" style="text-transform:none;letter-spacing:0">· last 28 days</span></h2>
-  <div class="vgrid">
-    {% for v in o.videos %}
-    <a class="vcard tilt" href="https://www.youtube.com/watch?v={{ v.video_id }}" target="_blank" rel="noopener" style="--i:{{ loop.index0 }}">
-      <span class="vthumb">{% if v.thumb %}<img src="{{ v.thumb }}" alt="" loading="lazy" referrerpolicy="no-referrer">{% endif %}<span class="rank">#{{ loop.index }}</span>
-        {% if v.duration_s and v.duration_s <= 180 %}<span class="plat youtube">Short</span>{% endif %}</span>
-      <span class="vbody"><b class="t-title">{{ v.title }}</b>
-        <span class="muted small ellipsis">{{ v.channel_name }}</span>
-        <span class="t-stats"><span class="hot">👁 {{ (v.period_views or v.views)|num }}</span><span class="muted">{{ v.views|num }} all time</span></span></span>
-    </a>
+  <section class="ax-kpis" id="ax-kpis" aria-label="Key numbers">
+    {% for key, label in [('views','Views'),('watch_h','Watch time'),('subs','Subscribers'),('likes','Likes'),('revenue','Revenue')] %}
+    <button type="button" class="ax-card ax-kpi ax-in {{ 'on' if loop.first }}" data-metric="{{ key }}" style="--i:{{ loop.index + 1 }}">
+      <span class="ax-kpi-label">{{ label }}</span>
+      <span class="ax-kpi-row"><b class="ax-kpi-val ax-num">0</b><span class="ax-delta"></span></span>
+      <span class="ax-kpi-sub"></span>
+      <svg class="ax-kpi-spark" viewBox="0 0 120 32" preserveAspectRatio="none"></svg>
+    </button>
     {% endfor %}
-  </div>
-</section>
-{% endif %}
+  </section>
 
-<details class="card more sxm-posts reveal">
-  <summary><b>Clips SXM posted</b> <span class="muted small">· {{ s.combined.posts }} posts, {{ s.combined.views|num }} views in {{ days }} days</span></summary>
-  <div style="overflow-x:auto">
-  <table>
-    <tr><th>Clip</th><th>Channel</th><th>Posted</th><th>Views</th><th>Likes</th><th>Watch</th></tr>
-    {% for r in rows %}
-    <tr><td>{% if r.permalink %}<a href="{{ r.permalink }}" target="_blank" rel="noopener">{{ r.hook or ('Clip #' ~ r.clip_id) }}</a>{% else %}{{ r.hook }}{% endif %}</td>
-      <td><span class="t-dot {{ r.platform }}" style="display:inline-block;width:8px;height:8px;margin-right:6px"></span>{{ r.channel_name or r.platform }}</td>
-      <td class="muted">{{ r.posted_local or '' }}</td><td>{{ r.views|num }}</td><td>{{ r.likes|num }}</td><td>{{ r.watch_hours|dec }}h</td></tr>
-    {% else %}
-    <tr><td colspan="6" class="muted">No clips posted in this window yet.</td></tr>
-    {% endfor %}
-  </table></div>
-</details>
-{% endif %}
-<script>window.SXM_AN = {{ {'series': o.series, 'syncing': syncing, 'synced': o.synced, 'days': days}|tojson }};</script>
+  <section class="ax-card ax-chart-card ax-in" style="--i:7">
+    <div class="ax-chart-head">
+      <div>
+        <span class="ax-k" id="ax-chart-label">Views</span>
+        <div class="ax-chart-total"><b class="ax-num" id="ax-chart-total">0</b><span class="ax-delta" id="ax-chart-delta"></span></div>
+      </div>
+      <div class="ax-chart-tools">
+        <div class="ax-seg sm" id="ax-mode" role="tablist" aria-label="Chart mode">
+          <span class="ax-seg-ind" aria-hidden="true"></span>
+          <button type="button" data-mode="total" class="on">Total</button>
+          <button type="button" data-mode="stack">By channel</button>
+        </div>
+        <label class="ax-toggle"><input type="checkbox" id="ax-compare" checked><span></span>Previous period</label>
+      </div>
+    </div>
+    <div class="ax-chart" id="ax-chart"><div class="ax-tip" hidden></div></div>
+    <div class="ax-chart-foot muted small">YouTube's numbers run about 2 days behind.</div>
+  </section>
+
+  <div class="ax-split">
+    <section class="ax-card ax-in" style="--i:8">
+      <div class="ax-sec-head"><h2 class="ax-h">Channel breakdown</h2><span class="ax-k">Click a column to sort</span></div>
+      <div class="ax-table-wrap">
+        <table class="ax-table" id="ax-table">
+          <thead><tr>
+            <th data-sort="name">Channel</th><th data-sort="views" class="r on">Views</th><th data-sort="delta" class="r">Change</th>
+            <th data-sort="watch" class="r">Watch h</th><th data-sort="subscribers" class="r">Subs</th><th data-sort="net" class="r">New subs</th><th class="r">Trend</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+    <section class="ax-card ax-in" style="--i:9">
+      <div class="ax-sec-head"><h2 class="ax-h">Best day to post</h2><span class="ax-k">Avg views by weekday</span></div>
+      <div class="ax-week" id="ax-week"></div>
+      <div class="ax-life">
+        <div><span class="ax-k">Lifetime views</span><b class="ax-num" id="ax-life-views">0</b></div>
+        <div><span class="ax-k">Subscribers</span><b class="ax-num" id="ax-life-subs">0</b></div>
+        <div><span class="ax-k">Videos</span><b class="ax-num" id="ax-life-videos">0</b></div>
+      </div>
+    </section>
+  </div>
+
+  <section class="ax-card ax-in" style="--i:10">
+    <div class="ax-sec-head"><h2 class="ax-h">Top videos</h2><span class="ax-k">Most views in the last 28 days</span></div>
+    <div class="ax-videos" id="ax-videos"></div>
+  </section>
+
+  <details class="ax-card ax-more ax-in" style="--i:11">
+    <summary><b>Clips SXM posted</b><span class="ax-k">{{ s.combined.posts }} posts · {{ s.combined.views|num }} views in {{ days }} days</span></summary>
+    <div class="ax-table-wrap">
+    <table class="ax-table">
+      <thead><tr><th>Clip</th><th>Channel</th><th>Posted</th><th class="r">Views</th><th class="r">Likes</th><th class="r">Watch</th></tr></thead>
+      <tbody>
+      {% for r in rows %}
+      <tr><td>{% if r.permalink %}<a href="{{ r.permalink }}" target="_blank" rel="noopener">{{ r.hook or ('Clip #' ~ r.clip_id) }}</a>{% else %}{{ r.hook }}{% endif %}</td>
+        <td>{{ r.channel_name or r.platform }}</td><td class="muted">{{ r.posted_local or '' }}</td>
+        <td class="r">{{ r.views|num }}</td><td class="r">{{ r.likes|num }}</td><td class="r">{{ r.watch_hours|dec }}h</td></tr>
+      {% else %}
+      <tr><td colspan="6" class="muted">No clips posted in this window yet.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+  </details>
+  {% endif %}
+</div>
+<script>window.SXM_DASH = {{ {'d': d, 'sel': sel, 'days': days}|tojson }};</script>
 {% endblock %}
