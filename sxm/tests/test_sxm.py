@@ -637,3 +637,85 @@ def test_trending_page_renders(db, monkeypatch):
     r = c.post("/trending/clip", data={"url": "https://www.youtube.com/watch?v=s2", "title": "t", "streamer": "Ishow"})
     assert r.json()["ok"]
     assert "✓ In queue" in c.get("/trending").text
+
+
+# ---------------- auto-post + inventory ----------------
+
+def test_autopost_every_n_hours_while_clips_last(db, tmp_path):
+    from sxm import autopost
+    connect_all(db)
+    yt = db.one("SELECT id FROM channels WHERE platform='youtube'")["id"]
+    vids = []
+    for i in range(3):
+        f = tmp_path / f"v{i}.mp4"
+        f.write_bytes(b"x")
+        cid = make_clip(db, score=i, video=str(f))
+        db.update("clips", cid, status="approved")
+        vids.append(cid)
+    db.insert("posts", {"clip_id": vids[0], "platform": "youtube", "channel_id": yt,
+                        "scheduled_at": "2099-01-01T00:00:00+00:00"})  # a normal-slot post: moves to the timer
+    autopost.save_rule(db, yt, every_hours=4, source="library")
+    assert db.one("SELECT status FROM posts WHERE clip_id=? AND auto=0", (vids[0],))["status"] == "cancelled"
+    first = db.one("SELECT * FROM posts WHERE channel_id=? AND auto=1 AND status='scheduled'", (yt,))
+    assert first["clip_id"] == vids[2]                    # best score first
+    autopost.run(db)                                      # one lined up at a time
+    assert db.one("SELECT COUNT(*) n FROM posts WHERE auto=1 AND status='scheduled'")["n"] == 1
+    # it posts -> the next one is 4 hours after it
+    posted_at = datetime(2030, 1, 1, 12, tzinfo=timezone.utc)
+    db.update("posts", first["id"], status="posted", posted_at=posted_at.isoformat())
+    autopost.run(db, now=posted_at + timedelta(minutes=5))
+    nxt = db.one("SELECT * FROM posts WHERE auto=1 AND status='scheduled'")
+    assert datetime.fromisoformat(nxt["scheduled_at"]) == posted_at + timedelta(hours=4)
+    # this account is off the normal slots; others still get them
+    assert yt not in {c["id"] for c in review.target_channels(db)}
+    s = autopost.summary(db)[0]
+    assert s["ready"] == 1 and s["next"] and "hours" in s["lasts"]
+    autopost.set_enabled(db, s["id"], False)
+    assert db.one("SELECT COUNT(*) n FROM posts WHERE auto=1 AND status='scheduled'")["n"] == 0
+    assert yt in {c["id"] for c in review.target_channels(db)}
+
+
+def test_autopost_from_trending_carousel_feeds_the_clipper(db, monkeypatch):
+    from sxm import autopost, trending
+    connect_all(db)
+    yt = db.one("SELECT id FROM channels WHERE platform='youtube'")["id"]
+    db.set_setting(trending.CACHE_KEY, json.dumps({"fetched_at": "2099-01-01T00:00:00Z", "rows": {"gta": {"now": [
+        {"platform": "youtube", "id": "g1", "url": "https://www.youtube.com/watch?v=g1", "title": "GTA 6 madness",
+         "channel": "Rp"}], "all": []}}}))
+    autopost.save_rule(db, yt, source="trending:gta")
+    rid = db.one("SELECT id FROM autopost")["id"]
+    src = db.one("SELECT * FROM sources WHERE autopost_id=?", (rid,))
+    assert src and src["url"].endswith("g1") and src["priority"] == 10
+    autopost.run(db)                                      # already making one: doesn't pile on
+    assert db.one("SELECT COUNT(*) n FROM sources WHERE autopost_id=?", (rid,))["n"] == 1
+
+
+def test_premade_clip_and_inventory_board(db, tmp_path):
+    from fastapi.testclient import TestClient
+    from sxm import autopost, inventory
+    from sxm.web import app
+    f = tmp_path / "my_edit.mp4"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=red:s=108x192:d=2",
+                    "-f", "lavfi", "-i", "sine=d=2", "-shortest", str(f)], check=True)
+    cid = autopost.add_premade(db, f)
+    clip = db.one("SELECT * FROM clips WHERE id=?", (cid,))
+    assert clip["status"] == "library" and Path(clip["video_path"]).exists() and clip["hook"] == "my edit"
+    assert abs(clip["end_s"] - 2) < 0.3
+    review.schedule_waiting(db)                           # ready-made clips wait for Auto-post
+    assert not db.q("SELECT * FROM posts WHERE clip_id=?", (cid,))
+    db.insert("sources", {"platform": "manual", "external_id": "q", "url": "https://x/v", "status": "downloading",
+                          "progress": "Downloading 42% · 3m 10s left", "priority": 10, "found_at": utcnow()})
+    b = inventory.board(db)
+    q = b["cols"][0]["items"][0]
+    assert q["pct"] == 42 and "3m 10s left" in q["line"]
+    assert b["counts"]["processed"] == 1
+    r = TestClient(app).get("/inventory")
+    assert r.status_code == 200 and "SXM Inventory" in r.text and "About to auto-post" in r.text
+
+
+def test_download_progress_text():
+    seen = []
+    clipper._report(lambda p, e: seen.append((p, e)), " 42.5%", "190")
+    clipper._report(lambda p, e: seen.append((p, e)), "NA", "NA")
+    assert seen == [(42.5, 190), (None, None)]
+    assert clipper.eta_text(190) == "3m 10s left" and clipper.eta_text(4000) == "1h 06m left"

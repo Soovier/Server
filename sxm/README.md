@@ -138,3 +138,9 @@ python -m pytest -q
 ## Trending
 
 The **Trending** tab shows three carousels you can swipe through: streamer videos blowing up right now (last 3 days), GTA (this week and all-time), and other games going viral (YouTube's Gaming chart plus Twitch's top games). "Right now" is ranked by views per hour. Cards that match one of your campaigns get a 💰 badge, and **✂ Clip this** sends the video straight to the Import queue. It refreshes every `TRENDING_REFRESH_HOURS` (default 6, about 500 of YouTube's 10,000 free daily quota units each time) using your connected channel or an optional `YOUTUBE_API_KEY`. Twitch shows up once `TWITCH_CLIENT_ID`/`SECRET` are set. Kick has no public API, so Kick links go in through Import.
+
+## Inventory and Auto-post
+
+The **Inventory** tab shows every video at every step: queued (with download % and time left), processing, processed, about to post, about to auto-post, and just posted. It refreshes by itself.
+
+**Auto-post**: pick an account, how often (default every 4 hours), and where clips come from: your own ready-made clips (drop them in on the Inventory page) plus approved SXM clips, or AI clips from one of the Trending carousels. An account on Auto-post gets its clips only from the timer, one at a time, while clips last. Carousel clips still follow your auto-approve and permission rules before they post.

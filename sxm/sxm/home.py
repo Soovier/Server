@@ -91,18 +91,32 @@ def pipeline(db: DB) -> list[dict]:
 
 
 def upcoming(db: DB, limit: int = 6) -> list[dict]:
-    tz = ZoneInfo(settings.timezone)
     rows = db.q("""SELECT p.id, p.platform, p.scheduled_at, c.id clip_id, c.hook, c.thumb_path, ch.name channel_name
                    FROM posts p JOIN clips c ON c.id=p.clip_id LEFT JOIN channels ch ON ch.id=p.channel_id
                    WHERE p.status IN ('scheduled','publishing') ORDER BY p.scheduled_at LIMIT ?""", (limit,))
-    now = datetime.now(timezone.utc)
     for r in rows:
-        at = datetime.fromisoformat(r["scheduled_at"])
-        r["when"] = at.astimezone(tz).strftime("%a %I:%M %p").replace(" 0", " ")
-        mins = int((at - now).total_seconds() // 60)
-        r["in"] = "now" if mins <= 0 else (f"in {mins} min" if mins < 60 else
-                                           f"in {mins // 60}h {mins % 60}m" if mins < 24 * 60 else f"in {mins // 1440}d")
+        r["when"] = _when(r["scheduled_at"])
+        r["in"] = _in(r["scheduled_at"])
     return rows
+
+
+def _when(iso: str) -> str:
+    at = datetime.fromisoformat(iso).astimezone(ZoneInfo(settings.timezone))
+    return at.strftime("%a %I:%M %p").replace(" 0", " ")
+
+
+def _in(iso: str) -> str:
+    mins = int((datetime.fromisoformat(iso) - datetime.now(timezone.utc)).total_seconds() // 60)
+    return "now" if mins <= 0 else (f"in {mins} min" if mins < 60 else
+                                    f"in {mins // 60}h {mins % 60}m" if mins < 24 * 60 else f"in {mins // 1440}d")
+
+
+def _ago(iso: str | None) -> str:
+    if not iso:
+        return ""
+    mins = int((datetime.now(timezone.utc) - datetime.fromisoformat(iso)).total_seconds() // 60)
+    return "just now" if mins < 1 else (f"{mins} min ago" if mins < 60 else
+                                        f"{mins // 60}h ago" if mins < 24 * 60 else f"{mins // 1440}d ago")
 
 
 def last_run(db: DB) -> dict | None:

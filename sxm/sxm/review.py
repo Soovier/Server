@@ -62,7 +62,10 @@ def next_slots(db: DB, platform: str, count: int, now: datetime | None = None,
 def target_channels(db: DB) -> list[dict]:
     """Every channel SXM posts to: switched on, on a platform you post to."""
     plats = enabled_platforms(db)
-    return [c for c in db.channels(enabled_only=True) if c["platform"] in plats and c.get("access_token")]
+    auto = {r["channel_id"] for r in db.q("SELECT channel_id FROM autopost WHERE enabled=1")}
+    # Accounts on Auto-post get their clips from the Auto-post timer instead of the normal slots.
+    return [c for c in db.channels(enabled_only=True)
+            if c["platform"] in plats and c.get("access_token") and c["id"] not in auto]
 
 
 def schedule_clip(db: DB, clip_id: int, when: dict[str, datetime] | None = None) -> list[int]:

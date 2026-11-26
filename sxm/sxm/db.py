@@ -149,6 +149,16 @@ CREATE TABLE IF NOT EXISTS submissions (
     UNIQUE(campaign_id, post_id)
 );
 
+-- Auto-post: one rule per account. Posts a clip every N hours while clips last.
+CREATE TABLE IF NOT EXISTS autopost (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    channel_id INTEGER NOT NULL UNIQUE REFERENCES channels(id),
+    enabled INTEGER DEFAULT 1,
+    every_hours REAL DEFAULT 4,
+    source TEXT DEFAULT 'library',        -- library | trending:streamers | trending:gta | trending:games
+    created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS job_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     job TEXT NOT NULL,
@@ -194,7 +204,8 @@ class DB:
             "campaigns": {"site_campaign_id": "INTEGER"},
             "submissions": {"site_submission_id": "INTEGER"},
             "sources": {"layout": "TEXT", "clips_wanted": "INTEGER", "progress": "TEXT",
-                        "clips_made": "INTEGER DEFAULT 0", "priority": "INTEGER DEFAULT 0"},
+                        "clips_made": "INTEGER DEFAULT 0", "priority": "INTEGER DEFAULT 0",
+                        "autopost_id": "INTEGER"},
             "clips": {"qc_status": "TEXT", "qc_notes": "TEXT", "copyright_risk": "REAL DEFAULT 0",
                       "layout": "TEXT", "downloaded_at": "TEXT"},
         }
@@ -229,6 +240,8 @@ class DB:
                 PRAGMA legacy_alter_table = OFF;
                 PRAGMA foreign_keys = ON;
             """)
+        if "auto" not in {r[1] for r in self._conn.execute("PRAGMA table_info(posts)")}:
+            self._conn.execute("ALTER TABLE posts ADD COLUMN auto INTEGER DEFAULT 0")
         # Single-account table from the first release -> channels.
         for a in self._conn.execute("SELECT * FROM accounts WHERE account_id IS NOT NULL").fetchall():
             a = dict(a)

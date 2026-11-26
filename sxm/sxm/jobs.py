@@ -47,7 +47,13 @@ JOBS = {
     "publish": lambda db=None: _run("publish", publish_due, db),
     "analytics": lambda db=None: _run("analytics", sync_metrics, db),
     "trending": lambda db=None: _run("trending", _trending, db),
+    "autopost": lambda db=None: _run("autopost", _autopost, db),
 }
+
+
+def _autopost(db: DB) -> str:
+    from .autopost import run
+    return run(db)
 
 
 def _trending(db: DB) -> str:
@@ -67,6 +73,7 @@ def start_scheduler():
     sched.add_job(JOBS["publish"], "interval", minutes=1, id="publish", max_instances=1, coalesce=True)
     sched.add_job(JOBS["analytics"], CronTrigger.from_crontab(settings.analytics_cron, timezone=settings.timezone),
                   id="analytics", max_instances=1, coalesce=True)
+    sched.add_job(JOBS["autopost"], "interval", minutes=5, id="autopost", max_instances=1, coalesce=True)
     sched.add_job(JOBS["trending"], "interval", hours=max(1.0, settings.trending_refresh_hours), id="trending",
                   max_instances=1, coalesce=True)
     sched.start()

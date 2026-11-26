@@ -22,6 +22,7 @@ import math
 import re
 import shutil
 import subprocess
+import time
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -58,24 +59,71 @@ class Moment:
 
 # ---------------- download ----------------
 
-def download(url: str, dest_dir: Path, max_height: int = 1080) -> Path:
-    """Download with yt-dlp (Twitch, YouTube, Kick and most sites)."""
+def download(url: str, dest_dir: Path, max_height: int = 1080, on_progress=None) -> Path:
+    """Download with yt-dlp (Twitch, YouTube, Kick and most sites).
+    on_progress(percent, eta_seconds) is called as it goes, so the app can show time left."""
     ytdlp = shutil.which("yt-dlp")
     dest_dir.mkdir(parents=True, exist_ok=True)
     tmpl = str(dest_dir / "%(extractor)s_%(id)s.%(ext)s")
     fmt = f"bv*[height<={max_height}]+ba/b[height<={max_height}]/b"
     if ytdlp:
         cmd = [ytdlp, "-f", fmt, "--merge-output-format", "mp4", "-o", tmpl, "--no-playlist",
+               "--newline", "--progress", "--progress-template",
+               "download:SXMPROG %(progress._percent_str)s %(progress.eta)s",
                "--print", "after_move:filepath", url]
-        proc = subprocess.run(cmd, capture_output=True, text=True)
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                                encoding="utf-8", errors="replace")
+        lines: list[str] = []
+        for line in proc.stdout:  # type: ignore[union-attr]
+            line = line.strip()
+            if line.startswith("SXMPROG"):
+                _report(on_progress, *line.split()[1:3])
+            elif line:
+                lines.append(line)
+                del lines[:-40]
+        proc.wait()
         if proc.returncode != 0:
-            raise RuntimeError(f"yt-dlp failed: {proc.stderr[-600:]}")
-        return Path(proc.stdout.strip().splitlines()[-1])
+            raise RuntimeError("yt-dlp failed: " + "\n".join(lines)[-600:])
+        paths = [l for l in lines if Path(l).suffix and Path(l).exists()]
+        return Path(paths[-1] if paths else lines[-1])
     import yt_dlp  # type: ignore
+
+    def hook(d):
+        if d.get("status") == "downloading":
+            total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
+            pct = f"{100 * d.get('downloaded_bytes', 0) / total:.1f}%" if total else "NA"
+            _report(on_progress, pct, str(d.get("eta")))
     with yt_dlp.YoutubeDL({"format": fmt, "outtmpl": tmpl, "merge_output_format": "mp4",
-                           "noplaylist": True, "quiet": True}) as ydl:
+                           "noplaylist": True, "quiet": True, "progress_hooks": [hook]}) as ydl:
         info = ydl.extract_info(url, download=True)
         return Path(ydl.prepare_filename(info)).with_suffix(".mp4")
+
+
+def _report(cb, pct: str = "", eta: str = "") -> None:
+    if not cb:
+        return
+    try:
+        p = float(pct.strip().rstrip("%"))
+    except (ValueError, AttributeError):
+        p = None
+    try:
+        e = int(float(eta))
+    except (TypeError, ValueError):
+        e = None
+    try:
+        cb(p, e)
+    except Exception:
+        pass
+
+
+def eta_text(seconds: int | None) -> str:
+    if seconds is None:
+        return "working out time left"
+    if seconds < 60:
+        return f"{seconds}s left"
+    if seconds < 3600:
+        return f"{seconds // 60}m {seconds % 60:02d}s left"
+    return f"{seconds // 3600}h {seconds % 3600 // 60:02d}m left"
 
 
 # ---------------- signals ----------------
@@ -286,7 +334,14 @@ def clip_source(db: DB, source_id: int, renderer=render_clip) -> list[int]:
         path = Path(src["local_path"]) if src.get("local_path") and Path(src["local_path"]).exists() else None
         if not path:
             step("Downloading the video", status="downloading", error=None)
-            path = download(src["url"], settings.media_dir / "sources")
+            last = [0.0]
+
+            def dl_progress(pct, eta):
+                if time.time() - last[0] < 2:
+                    return
+                last[0] = time.time()
+                step(f"Downloading {pct:.0f}% · {eta_text(eta)}" if pct is not None else "Downloading the video")
+            path = download(src["url"], settings.media_dir / "sources", on_progress=dl_progress)
             db.update("sources", source_id, local_path=str(path), status="downloaded")
         step("Finding the best moments", status="clipping", error=None)
         duration = probe_duration(path) or float(src.get("duration_s") or 0)

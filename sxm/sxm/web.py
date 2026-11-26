@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import analytics, campaigns, home, importer, review, trending
+from . import analytics, autopost, campaigns, home, importer, inventory, review, trending
 from .config import settings
 from .db import get_db
 from .discovery import add_manual_url
@@ -310,6 +310,54 @@ def import_page(request: Request, msg: str = ""):
                 import_clips=db.get_setting("import_clips", str(settings.clips_per_source)),
                 permitted=sorted(review.permitted_streamers(db)), msg=msg,
                 import_streamer=db.get_setting("import_streamer", ""))
+
+
+# ---------------- Inventory + Auto-post ----------------
+
+@app.get("/inventory", response_class=HTMLResponse)
+def inventory_page(request: Request, msg: str = ""):
+    db = get_db()
+    chans = [c for c in db.channels() if c.get("access_token")]
+    return page(request, "inventory.html", nav="inventory", b=inventory.board(db), rules=autopost.summary(db),
+                channels=chans, sources=autopost.SOURCES, msg=msg)
+
+
+@app.post("/autopost")
+def autopost_save(channel_id: int = Form(...), every_hours: float = Form(4), source: str = Form("library")):
+    try:
+        autopost.save_rule(get_db(), channel_id, every_hours, source)
+        msg = "🤖 Auto-post is on. The first post is lined up."
+    except ValueError as e:
+        msg = str(e)
+    return RedirectResponse("/inventory?msg=" + quote_plus(msg), 303)
+
+
+@app.post("/autopost/{rule_id}/{action}")
+def autopost_action(rule_id: int, action: str):
+    db = get_db()
+    if action in ("on", "off"):
+        autopost.set_enabled(db, rule_id, action == "on")
+    elif action == "remove":
+        autopost.remove_rule(db, rule_id)
+    else:
+        raise HTTPException(404)
+    return RedirectResponse("/inventory", 303)
+
+
+@app.post("/inventory/premade")
+async def premade_upload(request: Request, name: str):
+    dest = importer.uploads_dir() / ("premade-" + importer.safe_name(name))
+    part = dest.with_suffix(dest.suffix + ".part")
+    try:
+        with part.open("wb") as f:
+            async for chunk in request.stream():
+                f.write(chunk)
+        part.rename(dest)
+    except Exception:
+        part.unlink(missing_ok=True)
+        raise
+    cid = autopost.add_premade(get_db(), dest, title=Path(name).stem.replace("_", " "))
+    return JSONResponse({"ok": True, "id": cid})
 
 
 # ---------------- Trending ----------------

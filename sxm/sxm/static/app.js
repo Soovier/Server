@@ -255,7 +255,7 @@
     queueTimer = setInterval(() => { if (!document.hidden && document.getElementById('queue')) refreshQueue(); }, 3000);
   }
   // Dropping a file anywhere else on the Import page shouldn't open it in the browser.
-  ['dragover', 'drop'].forEach((t) => window.addEventListener(t, (e) => { if (document.getElementById('drop')) e.preventDefault(); }));
+  ['dragover', 'drop'].forEach((t) => window.addEventListener(t, (e) => { if (document.getElementById('drop') || document.getElementById('premade-drop')) e.preventDefault(); }));
 
   // Home: keep the numbers live without reloading.
   let liveTimer = null;
@@ -278,6 +278,82 @@
         });
       } catch (_) { /* offline for a moment; try again next tick */ }
     }, 15000);
+  }
+
+  // Inventory: tabs on phones, live board, drop in ready-made clips.
+  let invTimer = null;
+  function premadeOne(file) {
+    return new Promise((resolve) => {
+      const row = document.createElement('div');
+      row.className = 'up';
+      row.innerHTML = `<span class="ellipsis"></span><div class="up-bar"><i></i></div><span class="small muted up-pct">0%</span>`;
+      row.querySelector('.ellipsis').textContent = file.name;
+      document.getElementById('premade-uploads').prepend(row);
+      const x = new XMLHttpRequest();
+      x.open('POST', '/inventory/premade?' + new URLSearchParams({ name: file.name }));
+      x.upload.onprogress = (e) => {
+        if (!e.lengthComputable) return;
+        const pct = Math.round(e.loaded / e.total * 100);
+        row.querySelector('.up-bar i').style.width = pct + '%';
+        row.querySelector('.up-pct').textContent = pct + '%';
+      };
+      x.onload = () => {
+        const ok = x.status < 300;
+        row.classList.add(ok ? 'ok' : 'bad');
+        row.querySelector('.up-pct').textContent = ok ? '✓ in library' : 'failed';
+        if (ok) { const r = row.getBoundingClientRect(); confetti(r.left + 40, r.top); }
+        resolve(ok);
+      };
+      x.onerror = () => { row.classList.add('bad'); row.querySelector('.up-pct').textContent = 'failed'; resolve(false); };
+      x.send(file);
+    });
+  }
+  async function refreshBoard() {
+    try {
+      const html = await (await fetch('/inventory', { headers: { 'X-SXM': '1' } })).text();
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      for (const id of ['board']) {
+        const cur = document.getElementById(id), next = doc.getElementById(id);
+        if (!cur || !next) continue;
+        cur.querySelectorAll('[data-colpane]').forEach((pane) => {
+          const n = next.querySelector(`[data-colpane="${pane.dataset.colpane}"]`);
+          if (n && n.innerHTML !== pane.innerHTML) { pane.innerHTML = n.innerHTML; pane.classList.add('flash'); setTimeout(() => pane.classList.remove('flash'), 900); }
+        });
+      }
+      doc.querySelectorAll('.inv-tab').forEach((t) => {
+        const cur = document.querySelector(`.inv-tab[data-col="${t.dataset.col}"] .pill`);
+        if (cur) cur.textContent = t.querySelector('.pill').textContent;
+      });
+    } catch (_) {}
+  }
+  function inventoryPage(root) {
+    clearInterval(invTimer);
+    if (!root.querySelector('#board')) return;
+    const tabs = root.querySelectorAll('.inv-tab');
+    const pick = (key) => {
+      tabs.forEach((t) => t.classList.toggle('on', t.dataset.col === key));
+      root.querySelectorAll('[data-colpane]').forEach((p) => p.classList.toggle('pick', p.dataset.colpane === key));
+    };
+    tabs.forEach((t) => t.addEventListener('click', () => {
+      pick(t.dataset.col);
+      const pane = root.querySelector(`[data-colpane="${t.dataset.col}"]`);
+      if (pane && window.innerWidth > 900) { pane.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' }); pane.classList.add('flash'); setTimeout(() => pane.classList.remove('flash'), 900); }
+    }));
+    pick(tabs[0] && tabs[0].dataset.col);
+    const drop = root.querySelector('#premade-drop');
+    if (drop) {
+      const input = root.querySelector('#premade-files');
+      const send = async (files) => {
+        for (const f of files) await premadeOne(f);
+        toast('Ready-made clips added. Auto-post will use them.');
+        refreshBoard();
+      };
+      input.addEventListener('change', () => { send(Array.from(input.files)); input.value = ''; });
+      ['dragenter', 'dragover'].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.add('over'); }));
+      ['dragleave', 'drop'].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.remove('over'); }));
+      drop.addEventListener('drop', (e) => send(Array.from(e.dataTransfer.files)));
+    }
+    invTimer = setInterval(() => { if (!document.hidden && document.getElementById('board')) refreshBoard(); }, 4000);
   }
 
   // Trending: tabs, arrow scrolling, one-tap "Clip this", and new cards when a refresh lands.
@@ -339,6 +415,7 @@
     root.querySelectorAll('form[data-swipe]').forEach(swipeable);
     importPage(root);
     trendingPage(root);
+    inventoryPage(root);
     const started = new URLSearchParams(location.search).get('started');
     if (started) toast(started === 'pipeline' ? '⚡ Finding and clipping now. New clips land in Review.' : `Started ${started}.`);
     live();
