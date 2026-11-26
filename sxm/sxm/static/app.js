@@ -378,6 +378,100 @@
     invTimer = setInterval(() => { if (!document.hidden && document.getElementById('board')) refreshBoard(); }, 4000);
   }
 
+  // Analytics: big interactive chart, KPI sparklines, tilt + glow cards, live refresh.
+  const nfmt = (v, key) => key === 'watch_h' ? v.toLocaleString(undefined, { maximumFractionDigits: 1 })
+    : Math.round(v).toLocaleString();
+  function bigChart(box, series, key) {
+    const W = 1000, H = 300, P = { l: 52, r: 14, t: 16, b: 30 };
+    const vals = series.map((d) => d[key] || 0);
+    const min = Math.min(0, ...vals), max = Math.max(1, ...vals);
+    const span = max - min || 1;
+    const x = (i) => P.l + (series.length < 2 ? 0 : i / (series.length - 1)) * (W - P.l - P.r);
+    const y = (v) => P.t + (1 - (v - min) / span) * (H - P.t - P.b);
+    const pts = vals.map((v, i) => [x(i), y(v)]);
+    // smooth curve
+    let d = '';
+    pts.forEach((p, i) => {
+      if (!i) { d = `M${p[0]},${p[1]}`; return; }
+      const q = pts[i - 1], cx = (q[0] + p[0]) / 2;
+      d += ` C${cx},${q[1]} ${cx},${p[1]} ${p[0]},${p[1]}`;
+    });
+    const grid = [0, .25, .5, .75, 1].map((k) => {
+      const v = min + span * k, yy = y(v);
+      return `<line x1="${P.l}" x2="${W - P.r}" y1="${yy}" y2="${yy}" class="g"/><text x="${P.l - 8}" y="${yy + 4}" class="yl">${nfmt(v, key)}</text>`;
+    }).join('');
+    const step = Math.max(1, Math.ceil(series.length / 8));
+    const xl = series.map((s, i) => i % step ? '' : `<text x="${x(i)}" y="${H - 8}" class="xl">${new Date(s.day + 'T12:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</text>`).join('');
+    const old = box.querySelector('svg');
+    const svg = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" class="bc">
+      <defs><linearGradient id="bcg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#22d3ee" stop-opacity=".45"/><stop offset="1" stop-color="#22d3ee" stop-opacity="0"/></linearGradient>
+      <linearGradient id="bcl" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#5eead4"/><stop offset=".5" stop-color="#22d3ee"/><stop offset="1" stop-color="#a78bfa"/></linearGradient></defs>
+      ${grid}${xl}
+      <path class="ar" d="${d} L${x(series.length - 1)},${y(Math.max(min, 0))} L${x(0)},${y(Math.max(min, 0))} Z"/>
+      <path class="ln" d="${d}" pathLength="1"/>
+      <line class="cross" y1="${P.t}" y2="${H - P.b}" x1="-10" x2="-10"/><circle class="dot" r="6" cx="-20" cy="-20"/></svg>`;
+    if (old) old.remove();
+    box.insertAdjacentHTML('afterbegin', svg);
+    const el = box.querySelector('svg'), tip = box.querySelector('.chart-tip');
+    const cross = el.querySelector('.cross'), dot = el.querySelector('.dot');
+    const move = (e) => {
+      const r = el.getBoundingClientRect();
+      const fx = (e.clientX - r.left) / r.width * W;
+      let i = Math.round((fx - P.l) / (W - P.l - P.r) * (series.length - 1));
+      i = Math.max(0, Math.min(series.length - 1, i));
+      const [px, py] = pts[i];
+      cross.setAttribute('x1', px); cross.setAttribute('x2', px);
+      dot.setAttribute('cx', px); dot.setAttribute('cy', py);
+      const s = series[i];
+      tip.hidden = false;
+      tip.innerHTML = `<b>${nfmt(s[key] || 0, key)}</b><span>${new Date(s.day + 'T12:00').toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}</span>`;
+      const left = px / W * r.width;
+      tip.style.left = Math.min(r.width - 140, Math.max(0, left - 70)) + 'px';
+      tip.style.top = Math.max(0, py / H * r.height - 64) + 'px';
+    };
+    el.addEventListener('pointermove', move);
+    el.addEventListener('pointerleave', () => { tip.hidden = true; dot.setAttribute('cx', -20); cross.setAttribute('x1', -10); cross.setAttribute('x2', -10); });
+  }
+  let anTimer = null;
+  function analyticsPage(root) {
+    clearInterval(anTimer);
+    const an = window.SXM_AN, box = root.querySelector('#main-chart');
+    if (!an || !box) return;
+    let key = 'views';
+    bigChart(box, an.series, key);
+    root.querySelectorAll('.chart-tabs [data-metric]').forEach((b) => b.addEventListener('click', () => {
+      root.querySelectorAll('.chart-tabs [data-metric]').forEach((x) => x.classList.toggle('on', x === b));
+      key = b.dataset.metric; bigChart(box, an.series, key);
+    }));
+    const kmap = { views: 'views', watch: 'watch_h', subs: 'subs', likes: 'likes', income: 'revenue' };
+    root.querySelectorAll('svg[data-kspark]').forEach((svg) => {
+      svg.dataset.spark = JSON.stringify(an.series.map((d) => Math.max(0, d[kmap[svg.dataset.kspark]] || 0)));
+      spark(svg);
+    });
+    if (an.syncing) {
+      anTimer = setInterval(async () => {
+        if (!document.getElementById('main-chart')) return clearInterval(anTimer);
+        try {
+          const j = await (await fetch('/api/analytics?days=' + an.days)).json();
+          if (!j.syncing) { clearInterval(anTimer); go(location.pathname + location.search.replace(/[?&]msg=[^&]*/, ''), {}, false); toast('📈 Numbers updated'); }
+        } catch (_) {}
+      }, 2500);
+    }
+  }
+  // Cards lean toward the cursor and a soft light follows it.
+  document.addEventListener('pointermove', (e) => {
+    const c = e.target.closest && e.target.closest('.tilt');
+    if (!c || reduce) return;
+    const r = c.getBoundingClientRect();
+    const px = (e.clientX - r.left) / r.width, py = (e.clientY - r.top) / r.height;
+    c.style.setProperty('--mx', px * 100 + '%'); c.style.setProperty('--my', py * 100 + '%');
+    c.style.transform = `perspective(700px) rotateX(${(0.5 - py) * 6}deg) rotateY(${(px - 0.5) * 8}deg) translateY(-2px)`;
+  });
+  document.addEventListener('pointerout', (e) => {
+    const c = e.target.closest && e.target.closest('.tilt');
+    if (c && !c.contains(e.relatedTarget)) c.style.transform = '';
+  });
+
   // Campaign finder: live progress while searching, live counts while picking.
   let findTimer = null;
   function findPage(root) {
@@ -473,6 +567,7 @@
     trendingPage(root);
     inventoryPage(root);
     findPage(root);
+    analyticsPage(root);
     const started = new URLSearchParams(location.search).get('started');
     if (started) toast(started === 'pipeline' ? '⚡ Finding and clipping now. New clips land in Review.' : `Started ${started}.`);
     live();

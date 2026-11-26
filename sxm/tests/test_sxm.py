@@ -812,3 +812,74 @@ def test_clip_length_limits_flow_everywhere(db, tmp_path):
     src = db.one("SELECT * FROM sources WHERE id=?", (ids[0],))
     assert src["min_s"] is None   # blank = your default at clip time
     assert importer.lengths("", "") == {} and importer.lengths("0", "0") == {}
+
+
+# ---------------- live channel analytics ----------------
+
+def _yt_stats_http(calls, revenue_ok=False):
+    from datetime import date as _d
+    def handler(req):
+        calls.append(str(req.url))
+        p = req.url.params
+        if req.url.path.endswith("/channels"):
+            return httpx.Response(200, json={"items": [{"id": p["id"], "snippet": {"title": "Real Channel",
+                "thumbnails": {"medium": {"url": "https://yt3/av.jpg"}}},
+                "statistics": {"subscriberCount": "48200", "viewCount": "9100000", "videoCount": "312"},
+                "contentDetails": {"relatedPlaylists": {"uploads": "UUx"}}}]})
+        if "youtubeanalytics" in str(req.url):
+            if "estimatedRevenue" in p["metrics"] and not revenue_ok:
+                return httpx.Response(403, json={"error": {"message": "Forbidden"}})
+            if p.get("dimensions") == "day":
+                rows, cols = [], ["day", "views", "estimatedMinutesWatched", "subscribersGained", "subscribersLost",
+                                  "likes", "comments", "shares"]
+                for i in range(60):
+                    d = (_d.today() - timedelta(days=59 - i)).isoformat()
+                    rows.append([d, 1000 + i * 10, 300.0, 20, 2, 50, 5, 3])
+                return httpx.Response(200, json={"columnHeaders": [{"name": c} for c in cols], "rows": rows})
+            return httpx.Response(200, json={"columnHeaders": [{"name": "video"}, {"name": "views"},
+                                  {"name": "estimatedMinutesWatched"}], "rows": [["vid1", 5000, 900.0]]})
+        if req.url.path.endswith("/playlistItems"):
+            return httpx.Response(200, json={"items": [{"contentDetails": {"videoId": "vid2"}}]})
+        if req.url.path.endswith("/videos"):
+            return httpx.Response(200, json={"items": [
+                {"id": v, "snippet": {"title": f"Video {v}", "publishedAt": "2026-11-01T00:00:00Z",
+                 "thumbnails": {"medium": {"url": "t.jpg"}}}, "statistics": {"viewCount": "77000"},
+                 "contentDetails": {"duration": "PT45S"}} for v in p["id"].split(",")]})
+        return httpx.Response(404)
+    return httpx.Client(transport=httpx.MockTransport(handler))
+
+
+def test_channel_stats_pull_real_numbers(db, monkeypatch):
+    from sxm import channel_stats, home
+    yt = db.save_channel("youtube", "UCreal", enabled=True, name="Real Channel", access_token="T",
+                         expires_at="2999-01-01T00:00:00+00:00")
+    calls = []
+    msg = channel_stats.sync_all(db, _yt_stats_http(calls))
+    assert "60 days" in msg and "failed" not in msg
+    assert any("ids=channel%3D%3DUCreal" in u for u in calls)
+    o = channel_stats.overview(db, 28)
+    k = {x["key"]: x for x in o["kpis"]}
+    assert k["subs"]["value"] == 48200 and k["views"]["value"] > 28000
+    assert k["views"]["delta"] is not None and k["views"]["delta"] > 0       # growing vs the 28 days before
+    assert "+504 in 28 days" in k["subs"]["sub"]
+    ch = o["channels"][0]
+    assert ch["total_views"] == 9100000 and ch["videos"] == 312 and ch["share"] == 100.0
+    assert len(o["series"]) == 28 and o["series"][-1]["views"] == 1590
+    assert [v["video_id"] for v in o["videos"]][0] == "vid1"              # top of the last 28 days first
+    h = home.state(db, 7)
+    assert {s["key"]: s["value"] for s in h["stats"]}["subs"] == 48200
+    assert {s["key"]: s["value"] for s in h["stats"]}["views"] > 0
+
+
+def test_analytics_page_renders(db):
+    from fastapi.testclient import TestClient
+    from sxm import channel_stats
+    from sxm.web import app
+    db.save_channel("youtube", "UCreal", enabled=True, name="Real Channel", access_token="T",
+                    expires_at="2999-01-01T00:00:00+00:00")
+    channel_stats.sync_all(db, _yt_stats_http([]))
+    c = TestClient(app)
+    r = c.get("/analytics?days=28")
+    assert r.status_code == 200 and "Analytics" in r.text and "Real Channel" in r.text and "Top videos" in r.text
+    assert c.get("/stats", follow_redirects=False).status_code == 307
+    assert c.get("/").status_code == 200

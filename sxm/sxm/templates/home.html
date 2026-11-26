@@ -53,7 +53,7 @@
 
 <section class="reveal">
   <div class="row" style="justify-content:space-between">
-    <h2>Your stats</h2>
+    <h2>Your stats <a class="small" href="/analytics" style="text-transform:none;letter-spacing:0">full analytics →</a></h2>
     <div class="seg">
       {% for d in [7, 30, 90] %}<a href="/?days={{ d }}" class="{{ 'on' if h.days == d }}">{{ d }} days</a>{% endfor %}
     </div>
@@ -63,7 +63,8 @@
     <div class="card stat" style="--i:{{ loop.index }}">
       <div class="stat-label">{{ st.label }}</div>
       <div class="stat-value" data-count="{{ st.value }}" data-fmt="{{ st.fmt }}" data-key="{{ st.key }}">0</div>
-      {% if st.delta is not none %}<span class="delta {{ 'up' if st.delta >= 0 else 'down' }}">{{ '▲' if st.delta >= 0 else '▼' }} {{ st.delta|abs }}%</span>
+      {% if st.delta is not none %}<span class="delta {{ 'pos' if st.delta >= 0 else 'neg' }}">{{ '▲' if st.delta >= 0 else '▼' }} {{ st.delta|abs }}%</span>
+      {% elif st.sub %}<span class="delta muted">{{ st.sub }}</span>
       {% else %}<span class="delta muted">last {{ h.days }} days</span>{% endif %}
       {% if st.key == 'views' %}<svg class="spark" viewBox="0 0 100 28" preserveAspectRatio="none" data-spark="{{ h.spark|tojson }}"></svg>{% endif %}
     </div>
@@ -72,9 +73,10 @@
   {% if h.channels %}
   <div class="chips">
     {% for c in h.channels %}
-    <a class="chip {{ c.platform }}" href="/stats?ch={{ c.id }}">
+    <a class="chip {{ c.platform }}" href="/analytics?ch={{ c.id }}">
       {% if c.avatar %}<img src="{{ c.avatar }}" alt="" referrerpolicy="no-referrer">{% else %}<span class="ph">{{ c.name[:1] }}</span>{% endif %}
-      <span>{{ c.name }}</span><b data-count="{{ c.views }}" data-fmt="num">0</b><span class="muted small">views</span>
+      <span>{{ c.name }}</span><b data-count="{{ c.subscribers }}" data-fmt="num">0</b><span class="muted small">subs</span>
+      <b data-count="{{ c.views }}" data-fmt="num">0</b><span class="muted small">views</span>
     </a>
     {% endfor %}
   </div>
@@ -85,7 +87,7 @@
   <h2>How your clips are moving</h2>
   <div class="flow card">
     {% for p in h.pipeline %}
-    <a class="node {{ 'busy' if p.n }}" href="{{ {'find':'/sources','clip':'/review','review':'/review','post':'/schedule','live':'/stats'}[p.key] }}" title="{{ p.hint }}">
+    <a class="node {{ 'busy' if p.n }}" href="{{ {'find':'/sources','clip':'/review','review':'/review','post':'/schedule','live':'/analytics'}[p.key] }}" title="{{ p.hint }}">
       <span class="node-icon">{{ p.icon }}</span>
       <b data-count="{{ p.n }}" data-fmt="num">0</b>
       <span class="small muted">{{ p.label }}</span>

@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="an-hero reveal">
+  <div class="aurora"><i></i><i></i><i></i></div>
+  <div class="an-top">
+    <div>
+      <h1 class="an-title">Analytics</h1>
+      <p class="muted an-sub">
+        {% if syncing %}<span class="live"></span> Pulling your latest numbers…
+        {% elif o.synced %}<span class="live"></span> Live from {{ all_channels|length }} channel{{ 's' if all_channels|length != 1 }} · updated {{ synced_ago }}
+        {% else %}Not synced yet{% endif %}
+      </p>
+    </div>
+    <div class="an-actions">
+      <div class="seg">
+        {% for d, label in [(7,'7D'),(28,'28D'),(90,'90D'),(365,'1Y')] %}<a href="/analytics?days={{ d }}&ch={{ ch }}" class="{{ 'on' if days == d }}">{{ label }}</a>{% endfor %}
+      </div>
+      <form method="post" action="/analytics/refresh" class="inline"><input type="hidden" name="back" value="/analytics?days={{ days }}&ch={{ ch }}">
+        <button class="ghost refresh {{ 'spin' if syncing }}" {% if syncing %}disabled{% endif %}><span>↻</span> Refresh</button></form>
+    </div>
+  </div>
+  {% if all_channels %}
+  <div class="ch-filter">
+    <a href="/analytics?days={{ days }}" class="cf {{ 'on' if not ch }}"><span class="cf-all">★</span>All channels</a>
+    {% for c in all_channels %}
+    <a href="/analytics?days={{ days }}&ch={{ c.id }}" class="cf {{ 'on' if ch == c.id }}">
+      {% if c.avatar %}<img src="{{ c.avatar }}" alt="" referrerpolicy="no-referrer">{% else %}<span class="cf-all">{{ c.name[:1] }}</span>{% endif %}{{ c.name }}</a>
+    {% endfor %}
+  </div>
+  {% endif %}
+</section>
+{% if msg %}<div class="notice toast-src">{{ msg }}</div>{% endif %}
+
+{% if not all_channels %}
+<div class="card an-empty reveal"><span class="big-emoji">🔌</span><div><b>Connect a channel to see your analytics.</b>
+  <div class="muted">Your real views, subscribers and watch time show up here the moment a channel is connected.</div>
+  <a class="btn" href="/setup" style="margin-top:10px">Connect a channel →</a></div></div>
+{% else %}
+
+{% for c in o.channels if c.error %}
+<div class="notice warn-note">⚠️ <b>{{ c.name }}</b>: {{ c.error }}{% if 'expired' in c.error or '401' in c.error %} · <a href="/setup">reconnect it</a>{% endif %}</div>
+{% endfor %}
+{% if syncing and not o.has_data %}
+<div class="card syncing-card"><div class="radar"><i></i><i></i><i></i><span>📈</span></div><div><b>Getting your numbers from YouTube…</b><div class="muted small">A few seconds per channel. This page fills in by itself.</div></div></div>
+{% endif %}
+
+<div class="kpis">
+  {% for k in o.kpis %}
+  <div class="card kpi2 tilt" style="--i:{{ loop.index }}">
+    <div class="kpi-head"><span class="kpi-icon">{{ k.icon }}</span><span class="kpi-label">{{ k.label }}</span>
+      {% if k.delta is not none %}<span class="pillx {{ 'pos' if k.delta >= 0 else 'neg' }}">{{ '▲' if k.delta >= 0 else '▼' }} {{ k.delta|abs }}%</span>{% endif %}</div>
+    <div class="kpi-value" data-count="{{ k.value }}" data-fmt="{{ k.fmt }}">0</div>
+    <div class="muted small kpi-sub">{{ k.sub or ('vs the ' ~ days ~ ' days before' if k.delta is not none else 'last ' ~ days ~ ' days') }}</div>
+    <svg class="kpi-spark" viewBox="0 0 100 30" preserveAspectRatio="none" data-kspark="{{ k.key }}"></svg>
+  </div>
+  {% endfor %}
+</div>
+
+<section class="card chart-card reveal tilt-soft">
+  <div class="chart-head">
+    <div><h2 class="plain">Performance</h2><span class="muted small">Daily, last {{ days }} days. YouTube's numbers run about 2 days behind.</span></div>
+    <div class="seg chart-tabs" role="tablist">
+      {% for key, label in [('views','Views'),('watch_h','Watch hours'),('subs','Subscribers'),('likes','Likes')] %}
+      <button type="button" class="{{ 'on' if loop.first }}" data-metric="{{ key }}">{{ label }}</button>{% endfor %}
+    </div>
+  </div>
+  <div class="chart" id="main-chart"><div class="chart-tip" hidden></div></div>
+</section>
+
+<div class="an-split">
+  <section class="card reveal">
+    <h2 class="plain">Channels</h2>
+    <div class="leader">
+      {% for c in o.channels %}
+      <a class="lrow" href="/analytics?days={{ days }}&ch={{ c.id }}" style="--i:{{ loop.index }}">
+        <span class="lrank">{{ loop.index }}</span>
+        {% if c.avatar %}<img src="{{ c.avatar }}" alt="" referrerpolicy="no-referrer">{% else %}<span class="lav">{{ c.name[:1] }}</span>{% endif %}
+        <span class="lmain"><b class="ellipsis">{{ c.name }}</b>
+          <span class="muted small"><span class="t-dot {{ c.platform }}"></span><b class="w" data-count="{{ c.subscribers }}" data-fmt="num">0</b> subs · {{ c.videos }} videos{% if c.subs_net %} · <span class="{{ 'up-text' if c.subs_net > 0 else 'down-text' }}">{{ '+' if c.subs_net > 0 }}{{ c.subs_net }}</span>{% endif %}</span>
+          <span class="share"><i style="--w:{{ c.share }}%"></i></span></span>
+        <svg class="lspark" viewBox="0 0 100 30" preserveAspectRatio="none" data-spark="{{ c.spark|tojson }}"></svg>
+        <span class="lviews"><b data-count="{{ c.views }}" data-fmt="num">0</b><span class="muted small">views · {{ c.share }}%</span></span>
+      </a>
+      {% endfor %}
+    </div>
+  </section>
+  <section class="card reveal">
+    <h2 class="plain">Best day to post</h2>
+    <span class="muted small">Average views per day of the week</span>
+    {% set mx = (o.weekdays|map(attribute='avg')|max) or 1 %}
+    <div class="wbars">
+      {% for w in o.weekdays %}
+      <div class="wbar {{ 'best' if w.avg == mx and mx > 1 }}" style="--h:{{ (w.avg / mx * 100)|round(1) }}%;--i:{{ loop.index }}" title="{{ w.avg|num }} avg views">
+        <span class="wv">{{ w.avg|num }}</span><i></i><span class="wd">{{ w.day }}</span></div>
+      {% endfor %}
+    </div>
+    <div class="lifetime">
+      <div><span class="muted small">Lifetime views</span><b data-count="{{ o.lifetime_views }}" data-fmt="num">0</b></div>
+      <div><span class="muted small">Videos</span><b data-count="{{ o.channels|sum(attribute='videos') }}" data-fmt="num">0</b></div>
+    </div>
+  </section>
+</div>
+
+{% if o.videos %}
+<section class="reveal">
+  <h2>Top videos <span class="muted small" style="text-transform:none;letter-spacing:0">· last 28 days</span></h2>
+  <div class="vgrid">
+    {% for v in o.videos %}
+    <a class="vcard tilt" href="https://www.youtube.com/watch?v={{ v.video_id }}" target="_blank" rel="noopener" style="--i:{{ loop.index0 }}">
+      <span class="vthumb">{% if v.thumb %}<img src="{{ v.thumb }}" alt="" loading="lazy" referrerpolicy="no-referrer">{% endif %}<span class="rank">#{{ loop.index }}</span>
+        {% if v.duration_s and v.duration_s <= 180 %}<span class="plat youtube">Short</span>{% endif %}</span>
+      <span class="vbody"><b class="t-title">{{ v.title }}</b>
+        <span class="muted small ellipsis">{{ v.channel_name }}</span>
+        <span class="t-stats"><span class="hot">👁 {{ (v.period_views or v.views)|num }}</span><span class="muted">{{ v.views|num }} all time</span></span></span>
+    </a>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+<details class="card more sxm-posts reveal">
+  <summary><b>Clips SXM posted</b> <span class="muted small">· {{ s.combined.posts }} posts, {{ s.combined.views|num }} views in {{ days }} days</span></summary>
+  <div style="overflow-x:auto">
+  <table>
+    <tr><th>Clip</th><th>Channel</th><th>Posted</th><th>Views</th><th>Likes</th><th>Watch</th></tr>
+    {% for r in rows %}
+    <tr><td>{% if r.permalink %}<a href="{{ r.permalink }}" target="_blank" rel="noopener">{{ r.hook or ('Clip #' ~ r.clip_id) }}</a>{% else %}{{ r.hook }}{% endif %}</td>
+      <td><span class="t-dot {{ r.platform }}" style="display:inline-block;width:8px;height:8px;margin-right:6px"></span>{{ r.channel_name or r.platform }}</td>
+      <td class="muted">{{ r.posted_local or '' }}</td><td>{{ r.views|num }}</td><td>{{ r.likes|num }}</td><td>{{ r.watch_hours|dec }}h</td></tr>
+    {% else %}
+    <tr><td colspan="6" class="muted">No clips posted in this window yet.</td></tr>
+    {% endfor %}
+  </table></div>
+</details>
+{% endif %}
+<script>window.SXM_AN = {{ {'series': o.series, 'syncing': syncing, 'synced': o.synced, 'days': days}|tojson }};</script>
+{% endblock %}

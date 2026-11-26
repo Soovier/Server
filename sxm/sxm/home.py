@@ -131,29 +131,19 @@ def last_run(db: DB) -> dict | None:
 
 
 def state(db: DB, days: int = 7) -> dict:
-    s = analytics.summary(db, days)
-    prev = analytics.totals([r for r in analytics.post_rows(db, None, days * 2)
-                             if r.get("posted_at") and r["posted_at"] <
-                             (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()])
-    c = s["combined"]
-
-    def delta(cur: float, old: float) -> int | None:
-        return None if not old else round((cur - old) / old * 100)
-    daily: dict[str, int] = {}
-    for d in s["daily"]:
-        daily[d["day"]] = daily.get(d["day"], 0) + d["views"]
+    from .channel_stats import overview
+    o = overview(db, days)
+    k = {x["key"]: x for x in o["kpis"]}
     steps = setup_steps(db)
     required = [x for x in steps if not x.get("optional")]
     return {
         "days": days,
-        "stats": [
-            {"key": "views", "label": "Views", "value": c["views"], "fmt": "num", "delta": delta(c["views"], prev["views"])},
-            {"key": "watch", "label": "Watch hours", "value": c["watch_hours"], "fmt": "dec", "delta": delta(c["watch_hours"], prev["watch_hours"])},
-            {"key": "income", "label": "Income", "value": c["total_income"], "fmt": "money", "delta": None},
-            {"key": "posts", "label": "Posts", "value": c["posts"], "fmt": "num", "delta": delta(c["posts"], prev["posts"])},
-        ],
-        "spark": [daily[k] for k in sorted(daily)][-14:],
-        "channels": [ch for ch in s["by_channel"] if ch["enabled"]],
+        # Real channel numbers (every video on the channel), not only the clips SXM posted.
+        "stats": [{**k[key], "label": label} for key, label in
+                  (("views", "Views"), ("subs", "Subscribers"), ("watch", "Watch hours"), ("income", "Income"))],
+        "spark": [d["views"] for d in o["series"]][-14:],
+        "channels": [c for c in o["channels"] if c["enabled"] or c["subscribers"]],
+        "synced": o["synced"],
         "steps": steps,
         "steps_done": sum(1 for x in required if x["done"]),
         "steps_total": len(required),

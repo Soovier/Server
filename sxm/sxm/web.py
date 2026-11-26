@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import analytics, autopost, campaign_finder, campaigns, home, importer, inventory, review, trending
+from . import analytics, autopost, campaign_finder, campaigns, channel_stats, home, importer, inventory, review, trending
 from .config import settings
 from .db import get_db
 from .discovery import add_manual_url
@@ -98,14 +98,56 @@ def _hello() -> str:
     return "Good morning" if 5 <= hour < 12 else "Good afternoon" if hour < 17 else "Good evening"
 
 
-@app.get("/stats", response_class=HTMLResponse)
-def dashboard(request: Request, days: int = 30, channel: str = "", ch: int = 0):
+@app.get("/stats")
+def stats_redirect(request: Request):
+    return RedirectResponse("/analytics" + (("?" + request.url.query) if request.url.query else ""), 307)
+
+
+_stats_lock = threading.Lock()
+
+
+def _sync_stats_bg() -> bool:
+    if not _stats_lock.acquire(blocking=False):
+        return False
+
+    def run():
+        try:
+            channel_stats.sync_all(get_db())
+        except Exception:
+            import logging
+            logging.getLogger("sxm.channel_stats").exception("sync")
+        finally:
+            _stats_lock.release()
+    threading.Thread(target=run, name="sxm-stats", daemon=True).start()
+    return True
+
+
+@app.get("/analytics", response_class=HTMLResponse)
+def analytics_page(request: Request, days: int = 28, ch: int = 0, msg: str = ""):
     db = get_db()
-    s = analytics.summary(db, days or None)
-    rows = analytics.post_rows(db, channel or None, days or None, channel_id=ch or None)
-    ch_name = (db.get_channel(ch) or {}).get("name", "") if ch else ""
-    return page(request, "dashboard.html", nav="stats", s=s, rows=rows[:100], days=days, channel=channel, ch=ch,
-                ch_name=ch_name)
+    days = days if days in (7, 28, 90, 365) else 28
+    o = channel_stats.overview(db, days, ch or None)
+    if not o["synced"]:
+        _sync_stats_bg()  # first visit: fetch the real numbers now
+    s = analytics.summary(db, days)
+    rows = analytics.post_rows(db, None, days, channel_id=ch or None)
+    return page(request, "analytics.html", nav="analytics", o=o, s=s, rows=rows[:50], days=days, ch=ch, msg=msg,
+                syncing=_stats_lock.locked(), all_channels=channel_stats.overview(db, days)["channels"],
+                synced_ago=home._ago(o["synced"]) if o["synced"] else "")
+
+
+@app.get("/api/analytics")
+def api_analytics(days: int = 28, ch: int = 0):
+    o = channel_stats.overview(get_db(), days if days in (7, 28, 90, 365) else 28, ch or None)
+    o["syncing"] = _stats_lock.locked()
+    return JSONResponse(o)
+
+
+@app.post("/analytics/refresh")
+def analytics_refresh(back: str = Form("/analytics")):
+    started = _sync_stats_bg()
+    msg = "Pulling your latest numbers from every channel…" if started else "Already refreshing, hang on…"
+    return RedirectResponse(_safe_back(back) + ("&" if "?" in _safe_back(back) else "?") + "msg=" + quote_plus(msg), 303)
 
 
 @app.get("/api/summary")

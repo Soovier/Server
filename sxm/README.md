@@ -152,3 +152,7 @@ Campaigns → **🔎 Find clips for a campaign**. Paste the campaign link and/or
 ## Clip length
 
 Every place that makes clips (Import, campaign finder, Auto-post from Trending) has a clip length picker: presets from 15–30s up to 3 minutes, or type your own shortest/longest. Clips start and end on full sentences inside the range. What you pick on Import becomes your default.
+
+## Analytics
+
+The Analytics tab (it used to be called Stats) shows live numbers for every connected YouTube channel, not just the clips SXM posted. Every 3 hours SXM reads each channel's subscribers, total views and video count from the YouTube Data API, the daily views, watch time, subscribers, likes and revenue from the YouTube Analytics API, and the top videos. Press **Refresh** to pull them right away. YouTube's daily numbers run about 2 days behind. Pick 7D, 28D, 90D or 1Y, or filter to one channel. If a channel can't be read, its row shows why (usually reconnecting it on the Connect page fixes it).
