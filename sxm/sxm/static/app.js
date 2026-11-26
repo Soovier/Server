@@ -524,6 +524,9 @@
     const doc = new DOMParser().parseFromString(html, 'text/html');
     const next = doc.getElementById('main');
     if (!next) { location.href = url; return; }
+    // The app was updated since this tab loaded: do a full load so the new styles and scripts come in.
+    const ver = (d) => d.querySelector('meta[name="sxm-version"]')?.content;
+    if (ver(doc) && ver(doc) !== ver(document)) { location.href = url; return; }
     const apply = () => {
       main().replaceWith(next);
       document.querySelector('header nav').replaceWith(doc.querySelector('header nav'));

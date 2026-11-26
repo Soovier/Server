@@ -2,16 +2,17 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta name="sxm-version" content="{{ asset_v }}">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="view-transition" content="same-origin">
   <title>SXM</title>
   <link rel="icon" href="/static/logo.svg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=Inter:wght@400;500;600&display=swap">
-  <link rel="stylesheet" href="/static/style.css">
-  <script src="/static/chart.umd.js"></script>
-  <script src="/static/analytics.js" defer></script>
-  <script src="/static/app.js" defer></script>
+  <link rel="stylesheet" href="/static/style.css?v={{ asset_v }}">
+  <script src="/static/chart.umd.js?v={{ asset_v }}"></script>
+  <script src="/static/analytics.js?v={{ asset_v }}" defer></script>
+  <script src="/static/app.js?v={{ asset_v }}" defer></script>
 </head>
 <body>
 <div id="progress" aria-hidden="true"></div>

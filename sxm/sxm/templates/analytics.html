@@ -40,8 +40,8 @@
         <button type="button" class="ax-chip all" data-all>All channels</button>
         {% for c in d.channels %}
         <button type="button" class="ax-chip" data-ch="{{ c.id }}" style="--c:{{ c.color }}" aria-pressed="true">
-          <span class="ax-check"><svg viewBox="0 0 12 12"><path d="M2.5 6.2 5 8.6 9.5 3.6"/></svg></span>
-          {% if c.avatar %}<img src="{{ c.avatar }}" alt="" referrerpolicy="no-referrer">{% else %}<span class="ax-av">{{ c.name[:1] }}</span>{% endif %}
+          <span class="ax-check"><svg viewBox="0 0 12 12" width="11" height="11"><path d="M2.5 6.2 5 8.6 9.5 3.6"/></svg></span>
+          {% if c.avatar %}<img src="{{ c.avatar }}" alt="" width="22" height="22" referrerpolicy="no-referrer">{% else %}<span class="ax-av">{{ c.name[:1] }}</span>{% endif %}
           <span class="ax-chip-name">{{ c.name }}</span>
         </button>{% endfor %}
       </div>

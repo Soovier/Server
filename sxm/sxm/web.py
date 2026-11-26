@@ -35,6 +35,18 @@ def _local(iso: str | None, fmt: str = "%b %d, %I:%M %p") -> str:
     return datetime.fromisoformat(iso).astimezone(ZoneInfo(settings.timezone)).strftime(fmt)
 
 
+
+
+def _asset_version() -> str:
+    """Changes whenever a CSS/JS file changes, so browsers fetch the new one instead of a stale copy."""
+    import hashlib
+    h = hashlib.md5()
+    for f in sorted((HERE / "static").glob("*.[cj]s")):
+        h.update(f.read_bytes())
+    return h.hexdigest()[:10]
+
+
+templates.env.globals["asset_v"] = _asset_version()
 templates.env.filters["local"] = _local
 templates.env.filters["money"] = lambda v: f"${(v or 0):,.2f}"
 templates.env.filters["num"] = lambda v: f"{int(v or 0):,}"
