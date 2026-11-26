@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% from "_length.html" import length_pick %}
+{% block content %}
+<h1>Find clips for a campaign</h1>
+<p class="muted" style="margin-top:-8px">Paste the campaign link, or just tell SXM what the campaign wants. It reads the brief, finds the videos to clip on YouTube and Twitch, and you pick the format and how many clips.</p>
+{% if msg %}<div class="notice toast-src">{{ msg }}</div>{% endif %}
+
+{% if not f %}
+<form method="post" action="/find" class="card find-form reveal">
+  <label>Campaign link</label>
+  <input name="url" placeholder="https://contentrewards.com/campaign/... or any campaign page">
+  <label>…and/or describe it</label>
+  <textarea name="prompt" rows="4" placeholder="e.g. Clip Kai Cenat's latest streams. Must tag @kaicenat, no music, 30-60 second clips. Pays $1.50 per 1K views."></textarea>
+  <div class="row find-go">
+    <button class="big" data-confetti>🔎 Find videos to clip</button>
+    <span class="muted small">{% if has_claude %}Claude reads the campaign rules for you.{% else %}Add ANTHROPIC_API_KEY to .env and Claude reads the rules too. Without it SXM uses the links and your description.{% endif %}</span>
+  </div>
+</form>
+{% if recent %}
+<h2>Recent searches</h2>
+<div class="todos">
+  {% for r in recent %}
+  <a class="todo" href="/find?id={{ r.id }}" style="--i:{{ loop.index }}">
+    <span class="todo-icon">{{ '✅' if r.campaign_id else ('🔎' if r.status == 'ready' else ('⚠️' if r.status == 'failed' else '⏳')) }}</span>
+    <span class="todo-text"><b>{{ r.brief.name or r.url or (r.prompt or '')[:60] }}</b><span class="muted small">{{ r.count }} videos found{% if r.campaign_id %} · clips made{% endif %}</span></span>
+    <span class="btn ghost">Open →</span>
+  </a>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% elif f.status == 'working' %}
+<div class="card find-working reveal" data-find="{{ f.id }}">
+  <div class="radar"><i></i><i></i><i></i><span>🔎</span></div>
+  <div><b class="find-step">{{ f.step }}…</b><div class="muted small">This takes 10 to 30 seconds. The page updates by itself.</div></div>
+</div>
+
+{% elif f.status == 'failed' %}
+<div class="card"><b>That didn't work.</b> <span class="muted">{{ f.error }}</span>
+  <p><a class="btn" href="/find">Try again</a></p></div>
+
+{% else %}
+{% set b = f.brief %}
+<section class="card brief reveal">
+  <div class="row" style="justify-content:space-between;align-items:flex-start">
+    <div><span class="tag good">{{ '🧠 Read by Claude' if b.read_by == 'claude' else 'Read from links + your notes' }}</span>
+      <h2 class="plain">{{ b.name }}</h2>
+      {% if b.summary %}<p>{{ b.summary }}</p>{% endif %}</div>
+    {% if b.rate_per_1k %}<div class="rate"><b>${{ '%.2f'|format(b.rate_per_1k) }}</b><span class="muted small">per 1K views</span></div>{% endif %}
+  </div>
+  <div class="checks">
+    {% for c in b.creators %}<span class="check-chip">🎮 {{ c }}</span>{% endfor %}
+    {% for q in b.queries %}<span class="check-chip">🔎 {{ q }}</span>{% endfor %}
+    {% if b.required_tags %}<span class="check-chip warn">🏷 {{ b.required_tags }}</span>{% endif %}
+  </div>
+  {% if b.rules %}<details class="more"><summary>Campaign rules SXM will follow</summary><pre class="rules">{{ b.rules }}</pre></details>{% endif %}
+  {% for n in b.notes or [] %}<p class="muted small">ℹ️ {{ n }}</p>{% endfor %}
+</section>
+
+{% if f.candidates %}
+<form method="post" action="/find/{{ f.id }}/make" class="reveal" id="make-form">
+  <section class="card make-opts">
+    <div><label>Clips to make</label>
+      <div class="stepper"><button type="button" class="ghost" data-step="-1">−</button><input name="clips" id="mk-clips" type="number" min="1" max="60" value="{{ default_clips }}"><button type="button" class="ghost" data-step="1">+</button></div></div>
+    <div class="grow"><label>Format</label>
+      <div class="layout-pick" role="radiogroup">
+        {% for key, label, desc in layouts %}
+        <label class="lp {{ 'on' if key == 'stack' }}" title="{{ desc }}"><input type="radio" name="layout" value="{{ key }}" {{ 'checked' if key == 'stack' }}>
+          <span class="lp-thumb lp-{{ key }}"><i></i></span><span>{{ label }}</span></label>
+        {% endfor %}
+      </div></div>
+    {{ length_pick(lim, 'mk-len') }}
+    <label class="auto-check"><input type="checkbox" name="auto" value="1" checked> Auto-approve these clips</label>
+    <button class="big" data-confetti {% if f.campaign_id %}title="Adds more clips to the same campaign"{% endif %}>✂ Make <span id="mk-n">{{ default_clips }}</span> clips</button>
+  </section>
+  <p class="muted small"><span id="mk-picked">{{ [f.candidates|length, default_videos]|min }}</span> videos picked. The top {{ default_videos }} are ticked for you; tap a card to add or drop it.</p>
+  <div class="pick-grid">
+    {% for c in f.candidates %}
+    <label class="pick {{ c.platform }}" style="--i:{{ loop.index0 % 15 }}">
+      <input type="checkbox" name="pick" value="{{ c.url }}" {{ 'checked' if loop.index <= default_videos }}>
+      <span class="pick-media">{% if c.thumb %}<img src="{{ c.thumb }}" alt="" loading="lazy" referrerpolicy="no-referrer">{% endif %}<span class="tick">✓</span>
+        <span class="plat {{ c.platform }}">{{ {'youtube':'▶ YouTube','twitch':'◆ Twitch','kick':'K Kick'}.get(c.platform, c.platform) }}</span></span>
+      <span class="pick-body"><b class="t-title">{{ c.title }}</b>
+        <span class="muted small ellipsis">{{ c.channel }}{% if c.views %} · 👁 {{ c.views|num }}{% endif %}</span>
+        <span class="small why">{{ c.why }}</span>
+        <a class="small" href="{{ c.url }}" target="_blank" rel="noopener">Watch ↗</a></span>
+    </label>
+    {% endfor %}
+  </div>
+</form>
+{% else %}
+<div class="card muted">No videos found. Add the creator's name or a few words about the content and search again. <a href="/find">New search</a></div>
+{% endif %}
+{% endif %}
+<script>window.SXM_FIND = {{ (f.id if f and f.status == 'working' else 0)|tojson }};</script>
+{% endblock %}

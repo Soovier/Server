@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_length.html" import length_pick %}
 {% block content %}
 <h1>SXM Inventory</h1>
 <p class="muted" style="margin-top:-8px">Every video, at every step: waiting to download, being clipped, ready, lined up to post, and just posted. Updates by itself.</p>
@@ -16,7 +17,7 @@
     <span class="t-dot {{ r.platform }}"></span>
     <div class="rule-main">
       <b>{{ r.channel_name }}</b> <span class="muted small">{{ {'youtube':'YouTube','instagram':'Instagram','facebook':'Facebook'}.get(r.platform, r.platform) }}</span>
-      <div class="small">Every <b>{{ '%g'|format(r.every_hours) }}h</b> · {{ r.source_label }}</div>
+      <div class="small">Every <b>{{ '%g'|format(r.every_hours) }}h</b> · {{ r.source_label }}{% if r.source != 'library' %} · {{ r.min_s or lim.min }}–{{ r.max_s or lim.max }}s clips{% endif %}</div>
       <div class="small muted">
         {% if not r.enabled %}Paused{% else %}
           {{ r.ready }} clip{{ 's' if r.ready != 1 }} ready · lasts {{ r.lasts }}
@@ -42,6 +43,7 @@
     <div class="grow"><label>Clips from</label>
       <select name="source">{% for k, label, desc in sources %}<option value="{{ k }}" title="{{ desc }}">{{ label }}</option>{% endfor %}</select></div>
     <div><label>&nbsp;</label><button data-confetti>🤖 Start auto-posting</button></div>
+    <div class="auto-len">{{ length_pick(lim, 'auto-len') }}<p class="muted small">Used when SXM makes clips from a Trending carousel for this account.</p></div>
   </form>
   {% else %}
   <p class="muted">Connect an account first on <a href="/setup">Connect</a>, then turn on Auto-post here.</p>

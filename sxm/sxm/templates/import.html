@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_length.html" import length_pick %}
 {% block content %}
 <h1>Import streams</h1>
 <p class="muted" style="margin-top:-8px">Already have the stream? Drop it here. SXM finds the best moments, edits each one into a vertical clip, burns in captions from what's said, and sends them to Review.</p>
@@ -19,6 +20,7 @@
         {% endfor %}
       </div></div>
   </div>
+  {{ length_pick(lim, 'imp-len') }}
 
   <label class="drop" id="drop">
     <input type="file" id="files" accept="video/*,.mkv,.flv,.ts" multiple hidden>
@@ -32,7 +34,7 @@
     <summary>Paste links instead (Twitch VODs, YouTube, Kick…)</summary>
     <form method="post" action="/import/links" id="links-form">
       <textarea name="links" rows="4" placeholder="One link per line"></textarea>
-      <input type="hidden" name="streamer"><input type="hidden" name="layout"><input type="hidden" name="clips">
+      <input type="hidden" name="streamer"><input type="hidden" name="layout"><input type="hidden" name="clips"><input type="hidden" name="min_s"><input type="hidden" name="max_s">
       <p><button>Add links to the queue</button></p>
     </form>
   </details>

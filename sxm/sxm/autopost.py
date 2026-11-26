@@ -46,18 +46,23 @@ def rules(db: DB) -> list[dict]:
                    JOIN channels c ON c.id=a.channel_id ORDER BY a.id""")
 
 
-def save_rule(db: DB, channel_id: int, every_hours: float = 4, source: str = "library", enabled: bool = True) -> int:
+def save_rule(db: DB, channel_id: int, every_hours: float = 4, source: str = "library", enabled: bool = True,
+              min_s=None, max_s=None) -> int:
+    from .importer import lengths
+    ln = lengths(min_s, max_s)
     if not db.get_channel(channel_id):
         raise ValueError("Pick an account to post to")
     every_hours = max(1.0, min(float(every_hours or 4), 48.0))
     source = source if source in SOURCE_KEYS else "library"
     have = db.one("SELECT id FROM autopost WHERE channel_id=?", (channel_id,))
     if have:
-        db.update("autopost", have["id"], every_hours=every_hours, source=source, enabled=int(enabled))
+        db.update("autopost", have["id"], every_hours=every_hours, source=source, enabled=int(enabled),
+                  min_s=ln.get("min_s"), max_s=ln.get("max_s"))
         rid = have["id"]
     else:
         rid = db.insert("autopost", {"channel_id": channel_id, "every_hours": every_hours, "source": source,
-                                     "enabled": int(enabled), "created_at": utcnow()})
+                                     "enabled": int(enabled), "created_at": utcnow(),
+                                     "min_s": ln.get("min_s"), "max_s": ln.get("max_s")})
     # Normal-slot posts already waiting for this account move onto the auto-post timer.
     if enabled:
         db.run("UPDATE posts SET status='cancelled' WHERE channel_id=? AND status='scheduled' AND auto=0", (channel_id,))
@@ -121,7 +126,7 @@ def feed_from_trending(db: DB, rule: dict) -> int:
     for c in cards:
         sid = trending.queue_clip(db, c["url"], c.get("title", ""), c.get("channel", ""))
         if sid:
-            db.update("sources", sid, autopost_id=rule["id"])
+            db.update("sources", sid, autopost_id=rule["id"], min_s=rule.get("min_s"), max_s=rule.get("max_s"))
             return 1
     return 0
 

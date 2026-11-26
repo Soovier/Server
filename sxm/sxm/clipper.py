@@ -321,6 +321,30 @@ def default_copy(m: Moment, streamer: str, title: str) -> Moment:
 CLIP_LOCK = threading.Lock()
 
 
+MAX_LEN = 180  # Shorts, Reels and TikTok all take up to 3 minutes now
+
+
+def length_limits(db: DB, src: dict | None = None) -> tuple[int, int]:
+    """(shortest, longest) clip in seconds: this video's own setting, else your default, else .env."""
+    def num(v, d):
+        try:
+            return int(float(v)) if v not in (None, "") else d
+        except (TypeError, ValueError):
+            return d
+    lo = num(db.get_setting("clip_min_s"), settings.clip_min_seconds)
+    hi = num(db.get_setting("clip_max_s"), settings.clip_max_seconds)
+    if src:
+        lo, hi = num(src.get("min_s"), lo), num(src.get("max_s"), hi)
+    lo = max(5, min(lo, MAX_LEN))
+    hi = max(lo + 5, min(hi, MAX_LEN))
+    return lo, hi
+
+
+def target_length(lo: int, hi: int) -> int:
+    """Window to score: a bit past the middle of the range, since snapping to sentences trims it."""
+    return min(hi, max(lo, round(lo * 0.4 + hi * 0.6)))
+
+
 def clip_source(db: DB, source_id: int, renderer=render_clip) -> list[int]:
     src = db.one("SELECT * FROM sources WHERE id=?", (source_id,))
     if not src:
@@ -352,7 +376,8 @@ def clip_source(db: DB, source_id: int, renderer=render_clip) -> list[int]:
         step("Measuring hype and reactions")
         energy = audio_energy(path)
         energy_z = _zscores(energy)
-        short_source = duration <= settings.clip_max_seconds + 5
+        min_s, max_s = length_limits(db, src)
+        short_source = duration <= max_s + 5
         if not short_source:
             step("Detecting scene changes")
         cuts = [] if short_source else analysis.scene_cuts(path)
@@ -362,7 +387,7 @@ def clip_source(db: DB, source_id: int, renderer=render_clip) -> list[int]:
             if not words:
                 moments[0].words = []
         else:
-            length = max(settings.clip_min_seconds, min(45, settings.clip_max_seconds))
+            length = target_length(min_s, max_s)
             windows = score_windows(energy, words, duration, length, cuts=cuts)
             moments = pick_moments(windows, want * 2)
             moments = [snap_to_speech(m, words) for m in moments]
@@ -372,7 +397,11 @@ def clip_source(db: DB, source_id: int, renderer=render_clip) -> list[int]:
                     m.start = cut_start
                     m.words = [Word(w.start - m.start, w.end - m.start, w.text) for w in words
                                if m.start <= w.start < m.end]
-                m.end = min(m.end, m.start + settings.clip_max_seconds)  # keep inside platform limits
+                m.end = min(m.end, m.start + max_s)  # your longest
+                if m.end - m.start < min_s:  # your shortest
+                    m.end = min(duration, m.start + min_s)
+                    m.words = [Word(w.start - m.start, w.end - m.start, w.text) for w in words
+                               if m.start <= w.start < m.end]
                 m.words = [w for w in m.words if w.start < m.end - m.start]
         step("Writing hooks and captions")
         moments = ai_refine(moments, words, src["title"] or "", src["streamer"] or "",
@@ -407,7 +436,7 @@ def clip_source(db: DB, source_id: int, renderer=render_clip) -> list[int]:
                 renderer(path, out, m.start, m.end, m.words, m.hook, mode=mode, brand=settings.brand_handle,
                          facecam=cam, bars=bars, punches=punches[:6])
                 thumb = thumbnail(out, out.with_suffix(".jpg")) if out.exists() else None
-                check = qc.check_clip(out, m.end - m.start, max_s=settings.clip_max_seconds + 1,
+                check = qc.check_clip(out, m.end - m.start, max_s=max_s + 1,
                                       copyright_risk=risk)
                 db.update("clips", clip_id, video_path=str(out), thumb_path=str(thumb) if thumb else None,
                           status="pending_review", qc_status=check.status, qc_notes=check.text or None)

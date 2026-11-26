@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import analytics, autopost, campaigns, home, importer, inventory, review, trending
+from . import analytics, autopost, campaign_finder, campaigns, home, importer, inventory, review, trending
 from .config import settings
 from .db import get_db
 from .discovery import add_manual_url
@@ -309,7 +309,54 @@ def import_page(request: Request, msg: str = ""):
                 inbox=str(importer.inbox_dir()), import_layout=db.get_setting("import_layout", "auto"),
                 import_clips=db.get_setting("import_clips", str(settings.clips_per_source)),
                 permitted=sorted(review.permitted_streamers(db)), msg=msg,
-                import_streamer=db.get_setting("import_streamer", ""))
+                import_streamer=db.get_setting("import_streamer", ""), lim=_limits(db))
+
+
+def _limits(db) -> dict:
+    from .clipper import MAX_LEN, length_limits
+    lo, hi = length_limits(db)
+    return {"min": lo, "max": hi, "cap": MAX_LEN}
+
+
+# ---------------- Campaign finder ----------------
+
+@app.get("/find", response_class=HTMLResponse)
+def find_page(request: Request, id: int = 0, msg: str = ""):
+    db = get_db()
+    f = campaign_finder.get(db, id) if id else None
+    return page(request, "find.html", nav="campaigns", f=f, recent=campaign_finder.recent(db), layouts=LAYOUT_INFO,
+                msg=msg, default_videos=campaign_finder.DEFAULT_VIDEOS, default_clips=campaign_finder.DEFAULT_CLIPS,
+                lim=_limits(db),
+                has_claude=bool(settings.anthropic_api_key))
+
+
+@app.post("/find")
+def find_start(url: str = Form(""), prompt: str = Form("")):
+    try:
+        fid = campaign_finder.start(get_db(), url, prompt)
+    except ValueError as e:
+        return RedirectResponse("/find?msg=" + quote_plus(str(e)), 303)
+    return RedirectResponse(f"/find?id={fid}", 303)
+
+
+@app.get("/api/find/{find_id}")
+def find_status(find_id: int):
+    f = campaign_finder.get(get_db(), find_id) or {}
+    return JSONResponse({"status": f.get("status"), "step": f.get("step")})
+
+
+@app.post("/find/{find_id}/make")
+async def find_make(find_id: int, request: Request):
+    form = await request.form()
+    try:
+        r = campaign_finder.make_clips(get_db(), find_id, form.getlist("pick"), layout=str(form.get("layout") or "stack"),
+                                       total_clips=int(form.get("clips") or 10), auto_approve=form.get("auto") == "1",
+                                       name=str(form.get("name") or ""), min_s=form.get("min_s"),
+                                       max_s=form.get("max_s"))
+    except ValueError as e:
+        return RedirectResponse(f"/find?id={find_id}&msg=" + quote_plus(str(e)), 303)
+    msg = f"✂ Making {r['clips']} clips from {r['videos']} videos. Watch them on Inventory."
+    return RedirectResponse("/inventory?msg=" + quote_plus(msg), 303)
 
 
 # ---------------- Inventory + Auto-post ----------------
@@ -319,13 +366,14 @@ def inventory_page(request: Request, msg: str = ""):
     db = get_db()
     chans = [c for c in db.channels() if c.get("access_token")]
     return page(request, "inventory.html", nav="inventory", b=inventory.board(db), rules=autopost.summary(db),
-                channels=chans, sources=autopost.SOURCES, msg=msg)
+                channels=chans, sources=autopost.SOURCES, msg=msg, lim=_limits(db))
 
 
 @app.post("/autopost")
-def autopost_save(channel_id: int = Form(...), every_hours: float = Form(4), source: str = Form("library")):
+def autopost_save(channel_id: int = Form(...), every_hours: float = Form(4), source: str = Form("library"),
+                  min_s: int = Form(0), max_s: int = Form(0)):
     try:
-        autopost.save_rule(get_db(), channel_id, every_hours, source)
+        autopost.save_rule(get_db(), channel_id, every_hours, source, min_s=min_s, max_s=max_s)
         msg = "🤖 Auto-post is on. The first post is lined up."
     except ValueError as e:
         msg = str(e)
@@ -429,7 +477,8 @@ def api_queue():
 
 
 @app.post("/import/upload")
-async def import_upload(request: Request, name: str, streamer: str = "", layout: str = "auto", clips: int = 0):
+async def import_upload(request: Request, name: str, streamer: str = "", layout: str = "auto", clips: int = 0,
+                        min_s: int = 0, max_s: int = 0):
     dest = importer.uploads_dir() / importer.safe_name(name)
     n = 1
     while dest.exists():
@@ -445,17 +494,18 @@ async def import_upload(request: Request, name: str, streamer: str = "", layout:
         part.unlink(missing_ok=True)
         raise
     db = get_db()
-    _remember_import_prefs(db, streamer, layout, clips)
+    _remember_import_prefs(db, streamer, layout, clips, min_s, max_s)
     sid = importer.add_file(db, dest, streamer=streamer, layout=layout, clips=clips,
-                            title=Path(name).stem.replace("_", " "))
+                            title=Path(name).stem.replace("_", " "), min_s=min_s, max_s=max_s)
     return JSONResponse({"ok": True, "id": sid, "file": dest.name})
 
 
 @app.post("/import/links")
-def import_links(links: str = Form(""), streamer: str = Form(""), layout: str = Form("auto"), clips: int = Form(0)):
+def import_links(links: str = Form(""), streamer: str = Form(""), layout: str = Form("auto"), clips: int = Form(0),
+                 min_s: int = Form(0), max_s: int = Form(0)):
     db = get_db()
-    _remember_import_prefs(db, streamer, layout, clips)
-    ids = importer.add_links(db, links, streamer=streamer, layout=layout, clips=clips)
+    _remember_import_prefs(db, streamer, layout, clips, min_s, max_s)
+    ids = importer.add_links(db, links, streamer=streamer, layout=layout, clips=clips, min_s=min_s, max_s=max_s)
     msg = f"Added {len(ids)} video{'s' if len(ids) != 1 else ''} to the queue" if ids else "No new links found"
     return RedirectResponse("/import?msg=" + quote_plus(msg), 303)
 
@@ -472,7 +522,12 @@ def import_action(source_id: int, action: str):
     return RedirectResponse("/import", 303)
 
 
-def _remember_import_prefs(db, streamer: str, layout: str, clips: int) -> None:
+def _remember_import_prefs(db, streamer: str, layout: str, clips: int, min_s: int = 0, max_s: int = 0) -> None:
+    ln = importer.lengths(min_s, max_s)
+    if ln.get("min_s"):
+        db.set_setting("clip_min_s", str(ln["min_s"]))
+    if ln.get("max_s"):
+        db.set_setting("clip_max_s", str(ln["max_s"]))
     if layout in importer.LAYOUTS:
         db.set_setting("import_layout", layout)
     if clips:

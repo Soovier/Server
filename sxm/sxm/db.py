@@ -205,7 +205,8 @@ class DB:
             "submissions": {"site_submission_id": "INTEGER"},
             "sources": {"layout": "TEXT", "clips_wanted": "INTEGER", "progress": "TEXT",
                         "clips_made": "INTEGER DEFAULT 0", "priority": "INTEGER DEFAULT 0",
-                        "autopost_id": "INTEGER"},
+                        "autopost_id": "INTEGER", "min_s": "INTEGER", "max_s": "INTEGER"},
+            "autopost": {"min_s": "INTEGER", "max_s": "INTEGER"},
             "clips": {"qc_status": "TEXT", "qc_notes": "TEXT", "copyright_risk": "REAL DEFAULT 0",
                       "layout": "TEXT", "downloaded_at": "TEXT"},
         }

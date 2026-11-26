@@ -1,0 +1,16 @@
+{% macro length_pick(lim, id='len') %}
+<div class="len-pick" data-len id="{{ id }}">
+  <label>Clip length <span class="muted">(seconds)</span></label>
+  <div class="len-presets">
+    {% for lo, hi, label in [(15, 30, 'Quick 15–30s'), (20, 45, '20–45s'), (30, 59, 'Classic 30–59s'), (60, 90, 'Long 60–90s'), (90, 180, 'Up to 3 min')] %}
+    <button type="button" class="chip-btn {{ 'on' if lo == lim.min and hi == lim.max }}" data-min="{{ lo }}" data-max="{{ hi }}">{{ label }}</button>
+    {% endfor %}
+  </div>
+  <div class="len-row">
+    <input type="number" name="min_s" min="5" max="{{ lim.cap - 5 }}" value="{{ lim.min }}" aria-label="Shortest clip, seconds">
+    <span class="muted">to</span>
+    <input type="number" name="max_s" min="10" max="{{ lim.cap }}" value="{{ lim.max }}" aria-label="Longest clip, seconds">
+    <span class="muted small">sec. Clips end on a full sentence inside this range.</span>
+  </div>
+</div>
+{% endmacro %}

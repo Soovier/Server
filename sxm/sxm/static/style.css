@@ -437,3 +437,50 @@ a.inv-item:hover { border-color: #2b4157; transform: translateY(-1px); }
   .board { grid-template-columns: 1fr; overflow: visible; }
   .col { display: none; max-height: none; } .col.pick { display: flex; }
 }
+
+/* ---------- Campaign finder ---------- */
+.find-form textarea { resize: vertical; }
+.find-go { margin-top: 14px; gap: 14px; align-items: center; }
+.find-working { display: flex; align-items: center; gap: 22px; padding: 28px; }
+.radar { position: relative; width: 72px; height: 72px; flex: none; display: grid; place-items: center; font-size: 26px; }
+.radar i { position: absolute; inset: 0; border-radius: 50%; border: 2px solid var(--accent); opacity: 0; animation: radar 2.4s ease-out infinite; }
+.radar i:nth-child(2) { animation-delay: .8s; } .radar i:nth-child(3) { animation-delay: 1.6s; }
+@keyframes radar { from { transform: scale(.3); opacity: .9; } to { transform: scale(1.25); opacity: 0; } }
+.find-step { font-size: 17px; }
+.brief h2.plain { margin: 8px 0 4px; font: 700 22px Syne, Inter, sans-serif; color: var(--text); text-transform: none; letter-spacing: 0; }
+.brief .rate { text-align: right; display: grid; }
+.brief .rate b { font: 800 28px Inter, sans-serif; color: var(--good); }
+.brief .checks { margin-top: 10px; }
+pre.rules { white-space: pre-wrap; font: 13px/1.5 Inter, sans-serif; color: var(--muted); margin: 8px 0 0; }
+.make-opts { display: flex; gap: 18px; align-items: flex-end; flex-wrap: wrap; margin-top: 16px; position: sticky; top: 76px; z-index: 3; box-shadow: 0 10px 30px rgba(0,0,0,.4); }
+.make-opts .grow { flex: 1; min-width: 300px; }
+.make-opts label { margin-top: 0; }
+.auto-check { display: flex; align-items: center; gap: 8px; color: var(--text); font-size: 14px; margin: 0 0 10px; }
+.auto-check input { width: 18px; height: 18px; accent-color: #0891b2; }
+.pick-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; margin-top: 8px; }
+.pick { display: flex; flex-direction: column; margin: 0; color: var(--text); font-size: 14px; background: var(--panel); border: 2px solid var(--line); border-radius: 14px; overflow: hidden; cursor: pointer; animation: rise .45s cubic-bezier(.2,.8,.2,1) both; animation-delay: calc(var(--i) * 40ms); transition: border-color .2s, transform .2s, opacity .2s; opacity: .55; }
+.pick:hover { transform: translateY(-3px); }
+.pick input { position: absolute; opacity: 0; pointer-events: none; }
+.pick:has(input:checked) { border-color: var(--accent); opacity: 1; box-shadow: 0 0 0 3px rgba(34,211,238,.12); }
+.pick-media { position: relative; aspect-ratio: 16/9; background: var(--panel2); display: block; }
+.pick-media { overflow: hidden; }
+.pick-media img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.pick-media .plat { position: absolute; right: 8px; top: 8px; font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 6px; background: rgba(7,11,18,.78); }
+.pick .tick { position: absolute; left: 8px; top: 8px; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: rgba(7,11,18,.7); border: 2px solid #475569; color: transparent; font-weight: 800; transition: all .2s cubic-bezier(.2,.8,.2,1); }
+.pick:has(input:checked) .tick { background: var(--accent); border-color: var(--accent); color: #04232b; transform: scale(1.1); }
+.pick-body { padding: 10px 12px 12px; display: grid; gap: 4px; min-width: 0; }
+.pick .why { color: var(--warn); }
+@media (max-width: 640px) { .make-opts { position: static; } }
+
+/* ---------- Clip length picker ---------- */
+.len-pick { margin-top: 12px; }
+.len-presets { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.chip-btn { background: var(--panel2) !important; border: 1px solid var(--line); color: var(--muted); border-radius: 999px; padding: 5px 12px; font-size: 13px; transition: all .2s cubic-bezier(.2,.8,.2,1); }
+.chip-btn:hover { color: var(--text); transform: translateY(-1px); }
+.chip-btn.on { color: #04232b; background: var(--accent) !important; border-color: var(--accent); }
+.len-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.len-row input { width: 76px; text-align: center; font-weight: 600; }
+.len-row input.pop { animation: pop .4s cubic-bezier(.2,.8,.2,1); }
+.auto-len { grid-column: 1 / -1; }
+.auto-len .len-pick { margin-top: 0; }
+.make-opts .len-pick { margin-top: 0; }

@@ -178,8 +178,29 @@
   // ---------- Import page ----------
   function importOpts() {
     const layout = (document.querySelector('input[name="imp-layout"]:checked') || {}).value || 'auto';
+    const len = document.getElementById('imp-len');
     return { streamer: (document.getElementById('imp-streamer') || {}).value || '',
-             clips: (document.getElementById('imp-clips') || {}).value || '', layout };
+             clips: (document.getElementById('imp-clips') || {}).value || '', layout,
+             min_s: len ? len.querySelector('[name=min_s]').value : '', max_s: len ? len.querySelector('[name=max_s]').value : '' };
+  }
+
+  // Clip length: presets fill the two boxes; typing keeps them sensible.
+  function lengthPick(root) {
+    root.querySelectorAll('[data-len]').forEach((box) => {
+      const lo = box.querySelector('[name=min_s]'), hi = box.querySelector('[name=max_s]');
+      const mark = () => box.querySelectorAll('.chip-btn').forEach((b) =>
+        b.classList.toggle('on', b.dataset.min === lo.value && b.dataset.max === hi.value));
+      box.querySelectorAll('.chip-btn').forEach((b) => b.addEventListener('click', () => {
+        lo.value = b.dataset.min; hi.value = b.dataset.max; mark();
+        [lo, hi].forEach((i) => { i.classList.remove('pop'); void i.offsetWidth; i.classList.add('pop'); });
+      }));
+      const fix = () => {
+        let a = Math.max(5, parseInt(lo.value) || 5), z = Math.min(parseInt(hi.max) || 180, parseInt(hi.value) || 59);
+        if (z < a + 5) z = a + 5;
+        lo.value = a; hi.value = z; mark();
+      };
+      [lo, hi].forEach((i) => i.addEventListener('change', fix));
+    });
   }
 
   function uploadOne(file) {
@@ -190,7 +211,7 @@
       row.innerHTML = `<span class="ellipsis"></span><div class="up-bar"><i></i></div><span class="small muted up-pct">0%</span>`;
       row.querySelector('.ellipsis').textContent = file.name;
       document.getElementById('uploads').prepend(row);
-      const q = new URLSearchParams({ name: file.name, streamer: o.streamer, layout: o.layout, clips: o.clips });
+      const q = new URLSearchParams({ name: file.name, streamer: o.streamer, layout: o.layout, clips: o.clips, min_s: o.min_s, max_s: o.max_s });
       const x = new XMLHttpRequest();
       x.open('POST', '/import/upload?' + q);
       x.upload.onprogress = (e) => {
@@ -251,6 +272,7 @@
     lf.addEventListener('submit', () => {
       const o = importOpts();
       lf.streamer.value = o.streamer; lf.layout.value = o.layout; lf.clips.value = o.clips;
+      lf.min_s.value = o.min_s; lf.max_s.value = o.max_s;
     }, true);
     queueTimer = setInterval(() => { if (!document.hidden && document.getElementById('queue')) refreshQueue(); }, 3000);
   }
@@ -356,6 +378,39 @@
     invTimer = setInterval(() => { if (!document.hidden && document.getElementById('board')) refreshBoard(); }, 4000);
   }
 
+  // Campaign finder: live progress while searching, live counts while picking.
+  let findTimer = null;
+  function findPage(root) {
+    clearInterval(findTimer);
+    const id = window.SXM_FIND;
+    if (id && root.querySelector('[data-find]')) {
+      findTimer = setInterval(async () => {
+        if (!document.querySelector('[data-find]')) return clearInterval(findTimer);
+        try {
+          const j = await (await fetch('/api/find/' + id)).json();
+          const st = document.querySelector('.find-step');
+          if (st && j.step) st.textContent = j.step + '…';
+          if (j.status !== 'working') { clearInterval(findTimer); go('/find?id=' + id, {}, false); }
+        } catch (_) {}
+      }, 1500);
+    }
+    const form = root.querySelector('#make-form');
+    if (!form) return;
+    const clips = form.querySelector('#mk-clips');
+    const sync = () => {
+      form.querySelector('#mk-n').textContent = clips.value;
+      form.querySelector('#mk-picked').textContent = form.querySelectorAll('input[name=pick]:checked').length;
+    };
+    form.querySelectorAll('[data-step]').forEach((b) => b.addEventListener('click', () => {
+      clips.value = Math.max(1, Math.min(60, (parseInt(clips.value) || 10) + parseInt(b.dataset.step))); sync();
+    }));
+    clips.addEventListener('input', sync);
+    form.querySelectorAll('input[name=pick]').forEach((c) => c.addEventListener('change', sync));
+    form.querySelectorAll('.layout-pick input').forEach((r) => r.addEventListener('change', () => {
+      form.querySelectorAll('.lp').forEach((l) => l.classList.toggle('on', l.contains(r) ? r.checked : false));
+    }));
+  }
+
   // Trending: tabs, arrow scrolling, one-tap "Clip this", and new cards when a refresh lands.
   let trendTimer = null;
   function trendingPage(root) {
@@ -413,9 +468,11 @@
       requestAnimationFrame(() => r.style.setProperty('--p', r.dataset.ring));
     });
     root.querySelectorAll('form[data-swipe]').forEach(swipeable);
+    lengthPick(root);
     importPage(root);
     trendingPage(root);
     inventoryPage(root);
+    findPage(root);
     const started = new URLSearchParams(location.search).get('started');
     if (started) toast(started === 'pipeline' ? '⚡ Finding and clipping now. New clips land in Review.' : `Started ${started}.`);
     live();

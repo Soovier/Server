@@ -719,3 +719,96 @@ def test_download_progress_text():
     clipper._report(lambda p, e: seen.append((p, e)), "NA", "NA")
     assert seen == [(42.5, 190), (None, None)]
     assert clipper.eta_text(190) == "3m 10s left" and clipper.eta_text(4000) == "1h 06m left"
+
+
+# ---------------- campaign finder ----------------
+
+def test_campaign_finder_reads_brief_finds_videos_and_makes_clips(db, monkeypatch):
+    from sxm import campaign_finder
+    monkeypatch.setattr(settings, "youtube_api_key", "KEY")
+    monkeypatch.setattr(settings, "anthropic_api_key", "sk")
+    monkeypatch.setattr(settings, "twitch_client_id", "")
+    page = """<html><title>Kai Cenat Clipping | Rewards</title><body><h1>Clip Kai Cenat</h1>
+      <p>Must tag @kaicenat. $1.50 per 1K views.</p>
+      <a href="https://www.youtube.com/watch?v=AAAAAAAAAAA">VOD</a><a href="https://www.youtube.com/@KaiCenatLive">channel</a>
+      <script>var x = 1</script></body></html>"""
+    brief = {"name": "Kai Cenat clips", "summary": "Clip Kai's streams", "creators": ["Kai Cenat"],
+             "queries": ["kai cenat stream"], "rules": ["Tag @kaicenat", "No music"], "rate_per_1k": 1.5,
+             "required_tags": "@kaicenat #kaicenat", "platforms": "youtube,instagram"}
+    vids = {f"V{i:010d}": _yt_video(f"V{i:010d}", f"Kai stream {i}", 1000 * (20 - i), 100, "Kai Cenat Live") for i in range(14)}
+    vids["AAAAAAAAAAA"] = _yt_video("AAAAAAAAAAA", "The campaign VOD", 5, 200, "Kai Cenat Live")
+    asked = []
+
+    def handler(req):
+        u = str(req.url)
+        if "campaign.example" in u:
+            return httpx.Response(200, text=page)
+        if "anthropic" in u:
+            asked.append(json.loads(req.content)["messages"][0]["content"])
+            return httpx.Response(200, json={"content": [{"type": "text", "text": json.dumps(brief)}]})
+        p = req.url.params
+        if req.url.path.endswith("/search"):
+            if p["type"] == "channel":
+                return httpx.Response(200, json={"items": [{"id": {"channelId": "UCkai"}}]})
+            keys = list(vids)[:8] if p.get("channelId") else list(vids)[6:14]
+            return httpx.Response(200, json={"items": [{"id": {"videoId": k}} for k in keys]})
+        if req.url.path.endswith("/videos"):
+            return httpx.Response(200, json={"items": [vids[i] for i in p["id"].split(",") if i in vids]})
+        return httpx.Response(404)
+
+    http = httpx.Client(transport=httpx.MockTransport(handler))
+    monkeypatch.setattr(campaign_finder, "httpx", type("H", (), {"Client": lambda *a, **k: http}))
+    fid = campaign_finder.start(db, "campaign.example/kai", "focus on funny moments", background=False)
+    f = campaign_finder.get(db, fid)
+    assert f["status"] == "ready", f.get("error")
+    assert "Must tag @kaicenat" in asked[0] and "focus on funny moments" in asked[0]
+    assert f["brief"]["read_by"] == "claude" and f["brief"]["creators"][0] == "Kai Cenat"
+    c = f["candidates"]
+    assert len(c) >= 10
+    assert c[0]["id"] == "AAAAAAAAAAA" and c[0]["title"] == "The campaign VOD"   # campaign's own link first
+    db.set_setting("auto_approve", "0")
+    r = campaign_finder.make_clips(db, fid, [x["url"] for x in c[:10]], layout="stack", total_clips=10)
+    assert r["videos"] == 10 and r["clips"] == 10
+    srcs = db.q("SELECT * FROM sources WHERE campaign_id=?", (r["campaign_id"],))
+    assert len(srcs) == 10 and all(s["layout"] == "stack" and s["clips_wanted"] == 1 and s["priority"] == 20 for s in srcs)
+    camp = db.one("SELECT * FROM campaigns WHERE id=?", (r["campaign_id"],))
+    assert camp["rate_per_1k"] == 1.5 and "@kaicenat" in camp["rules"]
+    assert db.get_setting("auto_approve") == "1"
+    # 3 videos, 10 clips -> 4 + 3 + 3
+    r2 = campaign_finder.make_clips(db, fid, [x["url"] for x in c[10:13]], total_clips=10)
+    assert r2["campaign_id"] == r["campaign_id"]
+    assert sorted(s["clips_wanted"] for s in db.q("SELECT * FROM sources WHERE campaign_id=? AND id>?",
+                                                    (r["campaign_id"], srcs[-1]["id"]))) == [3, 3, 4]
+
+
+def test_campaign_finder_without_claude_uses_links_and_words(db, monkeypatch):
+    from fastapi.testclient import TestClient
+    from sxm import campaign_finder
+    from sxm.web import app
+    monkeypatch.setattr(settings, "anthropic_api_key", "")
+    http = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(500)))
+    b = campaign_finder.read_brief("", "Clip https://www.twitch.tv/videos/123456 and https://youtu.be/BBBBBBBBBBB of xqc", http)
+    assert b["read_by"] == "basic" and len(b["video_links"]) == 2 and b["queries"]
+    with pytest.raises(ValueError):
+        campaign_finder.start(db, "", "  ")
+    c = TestClient(app)
+    assert "Find clips for a campaign" in c.get("/find").text
+    assert "Find clips for a campaign" in c.get("/campaigns").text
+
+
+def test_clip_length_limits_flow_everywhere(db, tmp_path):
+    from sxm import importer
+    assert clipper.length_limits(db) == (settings.clip_min_seconds, settings.clip_max_seconds)
+    db.set_setting("clip_min_s", "15"); db.set_setting("clip_max_s", "30")
+    assert clipper.length_limits(db) == (15, 30)
+    assert clipper.length_limits(db, {"min_s": 60, "max_s": 90}) == (60, 90)
+    assert clipper.length_limits(db, {"min_s": 50, "max_s": 20}) == (50, 55)      # longest always > shortest
+    assert clipper.length_limits(db, {"min_s": 1, "max_s": 999}) == (5, 180)     # 3 minute cap
+    assert clipper.target_length(20, 59) == 43 and clipper.target_length(15, 30) == 24
+    ids = importer.add_links(db, "https://www.youtube.com/watch?v=CCCCCCCCCCC", min_s="60", max_s="90")
+    src = db.one("SELECT * FROM sources WHERE id=?", (ids[0],))
+    assert (src["min_s"], src["max_s"]) == (60, 90)
+    ids = importer.add_links(db, "https://www.youtube.com/watch?v=DDDDDDDDDDD")
+    src = db.one("SELECT * FROM sources WHERE id=?", (ids[0],))
+    assert src["min_s"] is None   # blank = your default at clip time
+    assert importer.lengths("", "") == {} and importer.lengths("0", "0") == {}

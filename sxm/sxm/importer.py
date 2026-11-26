@@ -41,16 +41,33 @@ def safe_name(name: str) -> str:
     return f"{stem}{ext if ext in VIDEO_EXT else '.mp4'}"
 
 
-def _options(layout: str, clips: int | str | None) -> dict:
+def _options(layout: str, clips: int | str | None, min_s=None, max_s=None) -> dict:
     try:
         n = max(1, min(int(clips or 0) or settings.clips_per_source, 15))
     except (TypeError, ValueError):
         n = settings.clips_per_source
-    return {"layout": layout if layout in LAYOUTS else None, "clips_wanted": n}
+    out = {"layout": layout if layout in LAYOUTS else None, "clips_wanted": n}
+    out.update(lengths(min_s, max_s))
+    return out
+
+
+def lengths(min_s=None, max_s=None) -> dict:
+    """Clean a shortest/longest pair from a form. Blank = use your default."""
+    from .clipper import MAX_LEN
+    try:
+        lo = int(float(min_s)) if min_s not in (None, "", 0, "0") else None
+        hi = int(float(max_s)) if max_s not in (None, "", 0, "0") else None
+    except (TypeError, ValueError):
+        return {}
+    if lo is not None:
+        lo = max(5, min(lo, MAX_LEN - 5))
+    if hi is not None:
+        hi = max((lo or 5) + 5, min(hi, MAX_LEN))
+    return {k: v for k, v in (("min_s", lo), ("max_s", hi)) if v is not None}
 
 
 def add_file(db: DB, path: Path, streamer: str = "", layout: str = "auto", clips: int | str | None = None,
-             title: str = "") -> int | None:
+             title: str = "", min_s=None, max_s=None) -> int | None:
     """Queue a video file that's already on this computer."""
     path = path.resolve()
     st = path.stat()
@@ -59,12 +76,13 @@ def add_file(db: DB, path: Path, streamer: str = "", layout: str = "auto", clips
                      title=title or path.stem.replace("_", " "))
     if sid:
         db.update("sources", sid, local_path=str(path), status="downloaded", priority=10,
-                  progress="Waiting in line", **_options(layout, clips))
+                  progress="Waiting in line", **_options(layout, clips, min_s, max_s))
         wake()
     return sid
 
 
-def add_links(db: DB, text: str, streamer: str = "", layout: str = "auto", clips: int | str | None = None) -> list[int]:
+def add_links(db: DB, text: str, streamer: str = "", layout: str = "auto", clips: int | str | None = None,
+              min_s=None, max_s=None) -> list[int]:
     """Queue every link in a block of text (one per line, or separated by spaces)."""
     ids = []
     for url in re.findall(r"https?://\S+", text or ""):
@@ -72,7 +90,7 @@ def add_links(db: DB, text: str, streamer: str = "", layout: str = "auto", clips
         ext = re.sub(r"[^a-zA-Z0-9]+", "_", url)[-120:]
         sid = add_source(db, platform="manual", external_id=ext, url=url, streamer=streamer.strip(), title=url)
         if sid:
-            db.update("sources", sid, priority=10, progress="Waiting in line", **_options(layout, clips))
+            db.update("sources", sid, priority=10, progress="Waiting in line", **_options(layout, clips, min_s, max_s))
             ids.append(sid)
     if ids:
         wake()
@@ -153,7 +171,7 @@ def _loop() -> None:
             while True:
                 with CLIP_LOCK:
                     nxt = db.one("SELECT id FROM sources WHERE priority>0 AND status IN ('new','downloaded') "
-                                 "ORDER BY id LIMIT 1")
+                                 "ORDER BY priority DESC, id LIMIT 1")
                     if not nxt:
                         break
                     clip_source(db, nxt["id"])

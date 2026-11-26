@@ -144,3 +144,11 @@ The **Trending** tab shows three carousels you can swipe through: streamer video
 The **Inventory** tab shows every video at every step: queued (with download % and time left), processing, processed, about to post, about to auto-post, and just posted. It refreshes by itself.
 
 **Auto-post**: pick an account, how often (default every 4 hours), and where clips come from: your own ready-made clips (drop them in on the Inventory page) plus approved SXM clips, or AI clips from one of the Trending carousels. An account on Auto-post gets its clips only from the timer, one at a time, while clips last. Carousel clips still follow your auto-approve and permission rules before they post.
+
+## Find clips for a campaign
+
+Campaigns → **🔎 Find clips for a campaign**. Paste the campaign link and/or describe it. SXM reads the page (Claude pulls out the creator, rules, required tags and pay when `ANTHROPIC_API_KEY` is set), then finds videos: links on the campaign page first, the creator's top recent YouTube videos, YouTube searches, and their Twitch VODs and clips. You get at least 10 to pick from (top 10 pre-ticked), choose the format (Facecam + gameplay by default), how many clips (10 by default) and the clip length, and SXM saves the campaign and clips them at the front of the queue. Campaign footage counts as permitted, so auto-approve can post it.
+
+## Clip length
+
+Every place that makes clips (Import, campaign finder, Auto-post from Trending) has a clip length picker: presets from 15–30s up to 3 minutes, or type your own shortest/longest. Clips start and end on full sentences inside the range. What you pick on Import becomes your default.
