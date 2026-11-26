@@ -205,10 +205,13 @@ class DB:
             "submissions": {"site_submission_id": "INTEGER"},
             "sources": {"layout": "TEXT", "clips_wanted": "INTEGER", "progress": "TEXT",
                         "clips_made": "INTEGER DEFAULT 0", "priority": "INTEGER DEFAULT 0",
-                        "autopost_id": "INTEGER", "min_s": "INTEGER", "max_s": "INTEGER"},
+                        "autopost_id": "INTEGER", "min_s": "INTEGER", "max_s": "INTEGER",
+                        "scan_from": "REAL", "scan_to": "REAL", "find_prompt": "TEXT", "scan_part": "TEXT"},
             "autopost": {"min_s": "INTEGER", "max_s": "INTEGER"},
             "clips": {"qc_status": "TEXT", "qc_notes": "TEXT", "copyright_risk": "REAL DEFAULT 0",
-                      "layout": "TEXT", "downloaded_at": "TEXT"},
+                      "layout": "TEXT", "downloaded_at": "TEXT",
+                      "media_path": "TEXT", "media_offset": "REAL DEFAULT 0", "words_json": "TEXT", "edit_json": "TEXT",
+                      "favorite": "INTEGER DEFAULT 0"},
         }
         for table, cols in adds.items():
             have = {r[1] for r in self._conn.execute(f"PRAGMA table_info({table})")}

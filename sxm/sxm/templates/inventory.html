@@ -94,7 +94,8 @@
           {% if r.status == 'failed' %}<span class="tag bad" title="{{ r.error or '' }}">Failed</span>
           {% elif r.permalink %}<a class="tag good" href="{{ r.permalink }}" target="_blank" rel="noopener">{{ '🤖 Auto' if r.auto else 'Posted' }} ↗</a>
           {% else %}<span class="tag good">{{ '🤖 Auto' if r.auto else 'Posted' }}</span>{% endif %}
-        {% else %}<span class="tag {{ 'hot' if c.key == 'auto' }}">{{ r.in }}</span>{% endif %}
+        {% else %}<span class="tag {{ 'hot' if c.key == 'auto' }}">{{ r.in }}</span>
+          <a class="tag" href="/clip/{{ r.clip_id }}" title="Open in the editor">✂️ Edit</a>{% endif %}
       </div>
       {% endif %}
     {% else %}

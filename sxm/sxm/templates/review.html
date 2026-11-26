@@ -38,6 +38,7 @@
       <div class="paste">
         <div class="paste-head"><span class="small muted">Ready-to-paste caption</span>
           <span><button type="button" class="ghost copy" data-copy="#cap-{{ c.id }}">📋 Copy</button>
+          <a class="btn ghost" href="/clip/{{ c.id }}" title="Open in the editor">✂️ Edit</a>
           {% if c.video_path %}<a class="btn ghost" href="/download/{{ c.id }}" download data-no-boost data-downloaded>⬇</a>{% endif %}</span></div>
         <textarea id="cap-{{ c.id }}" rows="3" readonly>{{ c.paste.caption }}</textarea>
       </div>

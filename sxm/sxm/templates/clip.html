@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="ax ce" id="ce" data-id="{{ c.id }}">
+  <div class="ce-top ax-in" style="--i:0">
+    <a class="ce-back" href="javascript:history.back()" data-no-boost>←</a>
+    <div class="ce-title">
+      <span class="ax-k">{{ c.streamer or 'Clip' }}{% if c.src_title %} · {{ c.src_title[:70] }}{% endif %}</span>
+      <b id="ce-hook-title">{{ c.hook or ('Clip #' ~ c.id) }}</b>
+    </div>
+    <div class="ce-top-tools">
+      <button type="button" class="ghost ce-ico" id="ce-undo" title="Undo (Ctrl+Z)" disabled>↶</button>
+      <button type="button" class="ghost ce-ico" id="ce-redo" title="Redo (Ctrl+Shift+Z)" disabled>↷</button>
+      <button type="button" class="ghost ce-ico ce-star {{ 'on' if c.favorite }}" id="ce-fav" title="Favourite">★</button>
+      <a class="btn ghost" href="/download/{{ c.id }}" download data-no-boost>Download</a>
+      <button type="button" class="ce-save" id="ce-save">Save &amp; render</button>
+    </div>
+  </div>
+
+  {% if not c.has_media %}
+  <div class="ax-note">⚠️ The original video for this clip isn't on this computer any more, so it can't be re-cut. You can still change the hook and caption.</div>
+  {% endif %}
+
+  <div class="ce-grid">
+    <section class="ce-src ax-card ax-in" style="--i:1">
+      <div class="ce-sec-head">
+        <span class="ax-k">Source</span>
+        <span class="ce-legend"><i class="cam"></i>Facecam <i class="game"></i>Gameplay</span>
+      </div>
+      <div class="ce-stage" id="ce-stage">
+        {% if c.has_media %}
+        <video id="ce-video" src="/clip/{{ c.id }}/source" preload="auto" playsinline muted></video>
+        {% endif %}
+        <div class="ce-box cam" data-box="facecam" hidden><span>Facecam</span><i class="ce-grip"></i></div>
+        <div class="ce-box game" data-box="game" hidden><span>Gameplay</span><i class="ce-grip"></i></div>
+      </div>
+      <div class="ce-transport">
+        <button type="button" class="ghost ce-ico" id="ce-play" title="Play / pause (Space)">▶</button>
+        <span class="ce-time"><b id="ce-cur">0:00</b> / <span id="ce-len">0:00</span></span>
+        <span class="ce-sel" id="ce-sel"></span>
+        <label class="ce-mute"><input type="checkbox" id="ce-sound"> Sound</label>
+      </div>
+      <div class="ce-tl" id="ce-tl">
+        <div class="ce-strip" id="ce-strip"></div>
+        <div class="ce-dim l"></div><div class="ce-dim r"></div>
+        <div class="ce-range" id="ce-range"><i class="ce-h in" data-h="start"></i><i class="ce-h out" data-h="end"></i></div>
+        <div class="ce-head" id="ce-headline"></div>
+      </div>
+      <div class="ce-tl-foot muted small"><span id="ce-va"></span><span>Drag the ends to trim · drag the middle to slide · click to seek</span><span id="ce-vb"></span></div>
+    </section>
+
+    <section class="ce-prev ax-card ax-in" style="--i:2">
+      <div class="ce-sec-head">
+        <span class="ax-k">Preview</span>
+        <div class="ax-seg sm ce-pv-mode" id="ce-pv-mode">
+          <button type="button" data-pv="live" class="on">Live</button>
+          <button type="button" data-pv="final">Rendered</button>
+        </div>
+      </div>
+      <div class="ce-phone" id="ce-phone">
+        <canvas id="ce-canvas" width="360" height="640"></canvas>
+        <video id="ce-final" src="/media/clips/clip_{{ c.id }}.mp4?t={{ c.updated or '' }}" playsinline controls preload="metadata" hidden></video>
+        <div class="ce-busy" id="ce-busy" {{ '' if c.busy else 'hidden' }}><span class="ce-spin"></span>Rendering…</div>
+      </div>
+      <div class="ce-aspects" id="ce-aspects" role="group" aria-label="Aspect ratio">
+        {% for a in ['9:16','4:5','1:1','16:9'] %}<button type="button" class="ghost {{ 'on' if c.aspect == a }}" data-aspect="{{ a }}"><i style="--ar:{{ a.replace(':','/') }}"></i>{{ a }}</button>{% endfor %}
+      </div>
+    </section>
+
+    <section class="ce-side ax-card ax-in" style="--i:3">
+      <div class="ax-seg ce-tabs" id="ce-tabs">
+        <button type="button" data-tab="ai" class="on">✨ Edit with AI</button>
+        <button type="button" data-tab="edit">Settings</button>
+      </div>
+
+      <div class="ce-pane" data-pane="ai">
+        <div class="ce-chat" id="ce-chat">
+          <div class="ce-msg bot">Tell me what to change and I'll re-cut it. Try one of these:</div>
+        </div>
+        <div class="ce-sugg" id="ce-sugg">
+          {% for s in ['Start right before the funny part', 'Make it 10 seconds shorter', 'End right after the payoff', 'Write a punchier hook', 'Facecam on top', 'Full frame, no crop', 'Turn captions off'] %}
+          <button type="button" class="ghost">{{ s }}</button>{% endfor %}
+        </div>
+        <form class="ce-ask" id="ce-ask" data-no-boost>
+          <input id="ce-ask-in" placeholder="e.g. start 3 seconds later and make the hook funnier" autocomplete="off" maxlength="600">
+          <button class="ce-send" aria-label="Send">↑</button>
+        </form>
+      </div>
+
+      <div class="ce-pane" data-pane="edit" hidden>
+        <label>Layout</label>
+        <div class="ce-layouts" id="ce-layouts">
+          {% for k, label in [('stack','Facecam + game'),('blur','Full frame'),('crop','Crop')] %}
+          <button type="button" class="ghost {{ 'on' if c.layout == k }}" data-layout="{{ k }}"><i class="lay {{ k }}"></i>{{ label }}</button>{% endfor %}
+        </div>
+        <label for="ce-hook">Hook <span class="muted">(on-screen title)</span></label>
+        <input id="ce-hook" maxlength="80" value="{{ c.hook }}">
+        <label for="ce-caption">Caption <span class="muted">(post text)</span></label>
+        <textarea id="ce-caption" rows="3" maxlength="300">{{ c.caption }}</textarea>
+        <label class="ce-check"><input type="checkbox" id="ce-captions" {{ 'checked' if c.captions }}> Burn in word-by-word captions</label>
+        <div class="ce-two">
+          <div><label for="ce-height">Resolution</label>
+            <select id="ce-height"><option value="1080" {{ 'selected' if c.height == 1080 }}>1080p</option><option value="720" {{ 'selected' if c.height == 720 }}>720p</option></select></div>
+          <div><label for="ce-fps">Frame rate</label>
+            <select id="ce-fps"><option value="30" {{ 'selected' if c.fps == 30 }}>30 fps</option><option value="60" {{ 'selected' if c.fps == 60 }}>60 fps</option></select></div>
+        </div>
+        <button type="button" class="ghost ce-reset-boxes" id="ce-reset">Reset crop boxes</button>
+        <details class="ce-trans" open>
+          <summary>Transcript</summary>
+          <div class="ce-words" id="ce-words"></div>
+        </details>
+        {% if c.history %}
+        <details class="ce-hist"><summary>Edit history</summary>
+          <ul>{% for h in c.history|reverse %}<li><span class="muted small">{{ h.at|local }}</span> {{ h.note }}</li>{% endfor %}</ul>
+        </details>{% endif %}
+      </div>
+    </section>
+  </div>
+</div>
+<script>window.SXM_CLIP = {{ c|tojson }};</script>
+{% endblock %}

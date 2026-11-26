@@ -160,3 +160,15 @@ The Analytics tab (it used to be called Stats) shows live numbers for every conn
 ## Cancel
 
 Anything downloading, being clipped or waiting in line has a **Cancel** button on the Import queue and the Inventory board. Tap it twice (the second tap confirms). A running download is stopped right away; a clip job stops at its next step. Clips that were already finished stay in Review.
+
+## Streams, fast scans and the clip editor
+**Streams** (top nav) shows which of your streamers are live. Search a Twitch, Kick or YouTube creator, or paste a link.
+A creator page shows the live player, the clips chat made in the last day (**Hot right now**, one tap to clip) and past streams.
+**Scan** a past stream for its best moments (4–8, unlimited or top 3), only look at the beginning, middle, end or set minutes,
+or use **Quick Find** to describe one moment you remember. Long streams only download the audio, then just the clip parts.
+The scan screen shows each step live and can run in the background or be cancelled.
+
+Every clip opens in the **editor** (✂️ Edit on Review, Inventory and Downloads): trim on the timeline, drag the facecam and
+gameplay boxes, pick 9:16 / 4:5 / 1:1 / 16:9, captions, 720/1080p and 30/60fps, with a live preview and undo/redo.
+**Edit with AI** takes plain asks like "start right before the jump scare and make the hook punchier" and re-renders the clip.
+Twitch lookups use your Twitch API keys when set, otherwise yt-dlp.

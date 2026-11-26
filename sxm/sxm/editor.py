@@ -44,22 +44,22 @@ def _esc(text: str) -> str:
 
 
 def build_ass(words: list[Word], hook: str, duration: float, words_per_line: int = 3,
-              brand: str = "") -> str:
+              brand: str = "", w: int = W, h: int = H) -> str:
     """Captions in the bold, centered, few-words-at-a-time style short-form uses.
 
     `words` are relative to the clip start.
     """
     header = f"""[Script Info]
 ScriptType: v4.00+
-PlayResX: {W}
-PlayResY: {H}
+PlayResX: {w}
+PlayResY: {h}
 WrapStyle: 0
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Cap,Arial Black,86,&H00FFFFFF,&H000000FF,&H00000000,&H64000000,-1,0,0,0,100,100,0,0,1,6,2,2,60,60,520,1
-Style: Hot,Arial Black,86,&H0000E5FF,&H000000FF,&H00000000,&H64000000,-1,0,0,0,100,100,0,0,1,6,2,2,60,60,520,1
-Style: Hook,Arial Black,70,&H00FFFFFF,&H000000FF,&H00000000,&HB4A020F0,-1,0,0,0,100,100,0,0,3,18,0,8,80,80,170,1
+Style: Cap,Arial Black,86,&H00FFFFFF,&H000000FF,&H00000000,&H64000000,-1,0,0,0,100,100,0,0,1,6,2,2,60,60,{int(520 * h / H)},1
+Style: Hot,Arial Black,86,&H0000E5FF,&H000000FF,&H00000000,&H64000000,-1,0,0,0,100,100,0,0,1,6,2,2,60,60,{int(520 * h / H)},1
+Style: Hook,Arial Black,70,&H00FFFFFF,&H000000FF,&H00000000,&HB4A020F0,-1,0,0,0,100,100,0,0,3,18,0,8,80,80,{int(170 * h / H)},1
 Style: Brand,Arial,38,&H80FFFFFF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,2,0,1,2,0,2,40,40,90,1
 
 [Events]
@@ -108,8 +108,12 @@ def _game_crop(facecam, game_h: int) -> str:
     return f"crop=ih*{W}/{game_h}:ih:'min(iw-ow,iw*{x:.4f})':0"
 
 
+ASPECTS = {"9:16": (1080, 1920), "16:9": (1920, 1080), "4:5": (1080, 1350), "1:1": (1080, 1080)}
+
+
 def render_command(src: Path, out: Path, start: float, end: float, ass_path: Path | None,
-                   mode: str = "blur", facecam=None, bars=None, punches: list[float] | None = None) -> list[str]:
+                   mode: str = "blur", facecam=None, bars=None, punches: list[float] | None = None,
+                   w: int = W, h: int = H, game=None, fps: int = 30, cam_share: float = 0.36) -> list[str]:
     """Build the FFmpeg command.
 
     mode 'stack': facecam on top, gameplay below (needs a facecam box; the
@@ -122,24 +126,28 @@ def render_command(src: Path, out: Path, start: float, end: float, ass_path: Pat
     """
     dur = max(end - start, 0.5)
     pre = (bars.ffmpeg_crop() + ",") if bars else ""
-    if mode == "stack" and facecam:
-        cam_h = int(H * 0.36) // 2 * 2
-        game_h = H - cam_h
+    fill = f"scale={{0}}:{{1}}:force_original_aspect_ratio=increase,crop={{0}}:{{1}}"
+    if mode == "stack" and facecam and h > w:
+        cam_h = int(h * cam_share) // 2 * 2
+        game_h = h - cam_h
+        gcrop = game.ffmpeg_crop() if game else _game_crop(facecam, game_h)
         vf = (f"[0:v]{pre}split=2[a][b];"
-              f"[a]{facecam.ffmpeg_crop()},scale={W}:{cam_h}:force_original_aspect_ratio=increase,crop={W}:{cam_h}[cam];"
-              f"[b]{_game_crop(facecam, game_h)},scale={W}:{game_h}[game];"
+              f"[a]{facecam.ffmpeg_crop()},{fill.format(w, cam_h)}[cam];"
+              f"[b]{gcrop},{fill.format(w, game_h)}[game];"
               f"[cam][game]vstack=inputs=2,setsar=1")
-    elif mode == "crop":
-        vf = f"[0:v]{pre}crop=ih*9/16:ih,scale={W}:{H},setsar=1"
+    elif mode == "crop" or (mode == "stack" and facecam):
+        box = game
+        first = f"{box.ffmpeg_crop()}," if box else f"crop='min(iw,ih*{w}/{h})':'min(ih,iw*{h}/{w})',"
+        vf = f"[0:v]{pre}{first}{fill.format(w, h)},setsar=1"
     else:
         vf = (f"[0:v]{pre}split=2[bg][fg];"
-              f"[bg]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},boxblur=24:2,eq=brightness=-0.08[bgb];"
-              f"[fg]scale={W}:-2[fgs];"
+              f"[bg]{fill.format(w, h)},boxblur=24:2,eq=brightness=-0.08[bgb];"
+              f"[fg]scale={w}:{h}:force_original_aspect_ratio=decrease[fgs];"
               f"[bgb][fgs]overlay=(W-w)/2:(H-h)/2,setsar=1")
     if punches:
         z = _punch_expr(punches)
-        vf += (f",scale=w='trunc({W}*{z}/2)*2':h='trunc({H}*{z}/2)*2':eval=frame"
-               f",crop={W}:{H}:(iw-{W})/2:(ih-{H})/2")
+        vf += (f",scale=w='trunc({w}*{z}/2)*2':h='trunc({h}*{z}/2)*2':eval=frame"
+               f",crop={w}:{h}:(iw-{w})/2:(ih-{h})/2")
     if ass_path:
         # subtitles filter path needs escaping of ':' and '\' on Windows
         p = str(ass_path).replace("\\", "/").replace(":", "\\:")
@@ -152,7 +160,7 @@ def render_command(src: Path, out: Path, start: float, end: float, ass_path: Pat
         ffmpeg_bin(), "-y", "-hide_banner", "-loglevel", "error",
         "-ss", f"{start:.3f}", "-i", str(src), "-t", f"{dur:.3f}",
         "-filter_complex", vf, "-map", "[v]", "-map", "0:a?",
-        "-c:v", "libx264", "-preset", "medium", "-crf", "20", "-pix_fmt", "yuv420p", "-r", "30",
+        "-c:v", "libx264", "-preset", "medium", "-crf", "20", "-pix_fmt", "yuv420p", "-r", str(fps),
         "-c:a", "aac", "-b:a", "160k", "-ar", "48000",
         "-af", af,
         "-movflags", "+faststart",
@@ -162,11 +170,17 @@ def render_command(src: Path, out: Path, start: float, end: float, ass_path: Pat
 
 def render_clip(src: Path, out: Path, start: float, end: float, words: list[Word], hook: str = "",
                 mode: str = "blur", brand: str = "", facecam=None, bars=None,
-                punches: list[float] | None = None) -> Path:
+                punches: list[float] | None = None, aspect: str = "9:16", game=None, fps: int = 30,
+                height: int = 1080, captions: bool = True) -> Path:
     out.parent.mkdir(parents=True, exist_ok=True)
+    w, h = ASPECTS.get(aspect, (W, H))
+    if height and height < 1080:  # 720p export
+        k = height / 1080
+        w, h = int(w * k) // 2 * 2, int(h * k) // 2 * 2
     ass = out.with_suffix(".ass")
-    ass.write_text(build_ass(words, hook, end - start, brand=brand), encoding="utf-8")
-    cmd = render_command(src, out, start, end, ass, mode, facecam=facecam, bars=bars, punches=punches)
+    ass.write_text(build_ass(words if captions else [], hook, end - start, brand=brand, w=w, h=h), encoding="utf-8")
+    cmd = render_command(src, out, start, end, ass, mode, facecam=facecam, bars=bars, punches=punches,
+                         w=w, h=h, game=game, fps=fps)
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
         raise RuntimeError(f"FFmpeg failed: {proc.stderr[-800:]}")

@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% from "_length.html" import length_pick %}
+{% set PNAME = {'twitch': 'Twitch', 'kick': 'Kick', 'youtube': 'YouTube'} %}
+{% block content %}
+<div class="ax st" id="st">
+  <div class="st-head ax-in" style="--i:0">
+    <div>
+      <h1 class="ax-title">Streams</h1>
+      <p class="ax-sub">See who's live, grab what's popping off right now, or scan a past stream for its best moments.</p>
+    </div>
+  </div>
+  {% if msg %}<div class="notice toast-src">{{ msg }}</div>{% endif %}
+
+  <form class="st-search ax-in" style="--i:1" method="get" action="/streams" id="st-search">
+    <div class="st-plat" role="tablist" aria-label="Platform">
+      {% for k in ['twitch', 'kick', 'youtube'] %}
+      <button type="button" role="tab" class="st-pbtn {{ k }} {{ 'on' if p == k }}" data-p="{{ k }}">
+        <span class="st-dot"></span>{{ PNAME[k] }}</button>{% endfor %}
+      <input type="hidden" name="p" value="{{ p }}">
+    </div>
+    <div class="st-box">
+      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="m20 20-3.5-3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <input name="q" value="{{ q }}" autocomplete="off" id="st-q"
+             placeholder="Search {{ PNAME[p] }} creators or paste a stream link" aria-label="Creator or link">
+      <button class="st-go">Go</button>
+    </div>
+  </form>
+
+  {% if target and target.kind == 'creator' %}
+  <section class="st-creator" id="st-creator" data-p="{{ target.platform }}" data-h="{{ target.handle }}" data-fav="{{ 1 if fav else 0 }}">
+    <div class="st-skel">
+      <div class="st-skel-row"><i class="sk av"></i><div><i class="sk w40"></i><i class="sk w20"></i></div></div>
+      <i class="sk player"></i>
+      <div class="st-grid"><i class="sk card"></i><i class="sk card"></i><i class="sk card"></i><i class="sk card"></i></div>
+      <p class="muted small center">Checking {{ target.handle }} on {{ PNAME[target.platform] }}…</p>
+    </div>
+  </section>
+  {% else %}
+  <section class="ax-card st-board ax-in" style="--i:2">
+    <div class="ax-sec-head"><h2 class="ax-h">Your streamers</h2><span class="ax-k" id="st-board-note">Checking who's live…</span></div>
+    {% if favs %}
+    <div class="st-favs" id="st-favs">
+      {% for f in favs %}
+      <a class="st-fav" href="/streams?p={{ f.platform }}&q={{ f.handle }}" data-key="{{ f.platform }}:{{ f.handle }}">
+        <span class="st-av">{% if f.avatar %}<img src="{{ f.avatar }}" alt="" width="44" height="44" referrerpolicy="no-referrer">{% else %}{{ (f.name or f.handle)[:1]|upper }}{% endif %}</span>
+        <span class="st-fav-txt"><b>{{ f.name or f.handle }}</b><small class="st-fav-sub"><span class="st-pl {{ f.platform }}">{{ PNAME[f.platform] }}</span> <span class="st-state">…</span></small></span>
+      </a>{% endfor %}
+    </div>
+    {% else %}
+    <p class="muted">Search a streamer above and tap ☆ to keep them here. Anyone who's live floats to the top.</p>
+    {% endif %}
+  </section>
+  <div class="st-how ax-in" style="--i:3">
+    <div><b>⚡ Hot right now</b><span>Open a streamer to see the clips chat made in the last day. One tap turns one into a Short.</span></div>
+    <div><b>🎯 Quick Find</b><span>Remember a moment? Describe it and SXM finds just that part, no full download.</span></div>
+    <div><b>✂️ Edit with AI</b><span>Every clip opens in the editor. Say "start 3 seconds later" and it re-cuts it.</span></div>
+  </div>
+  {% endif %}
+
+  <!-- Scan sheet -->
+  <div class="st-sheet" id="st-sheet" {{ '' if target and target.kind == 'video' else 'hidden' }}>
+    <div class="st-sheet-bg" data-close></div>
+    <form class="st-sheet-card" method="post" action="/streams/scan" id="st-scan">
+      <div class="st-sheet-top">
+        <div><span class="ax-k">Set up your scan</span><b id="sc-title">{{ 'Pasted link' if target and target.kind == 'video' else '' }}</b></div>
+        <button type="button" class="ghost st-x" data-close aria-label="Close">✕</button>
+      </div>
+      <input type="hidden" name="url" value="{{ target.url if target and target.kind == 'video' else '' }}">
+      <input type="hidden" name="title"><input type="hidden" name="streamer" value="{{ target.handle if target and target.handle else '' }}">
+      <input type="hidden" name="platform" value="{{ target.platform if target else 'manual' }}"><input type="hidden" name="duration" value="0">
+
+      <div class="sc-modes">
+        <label class="sc-mode on"><input type="radio" name="mode" value="scan" checked>
+          <b>Find clips</b><span>Scans the stream for its best moments</span></label>
+        <label class="sc-mode"><input type="radio" name="mode" value="quick">
+          <b>Quick Find</b><span>Finds ONE moment you remember</span></label>
+      </div>
+
+      <div class="sc-quick" hidden>
+        <label for="sc-prompt">Describe the moment</label>
+        <textarea id="sc-prompt" name="prompt" rows="2" maxlength="300" placeholder="e.g. when he hit the 1v4 clutch and chat went crazy"></textarea>
+      </div>
+
+      <div class="sc-count">
+        <label>How many clips</label>
+        <div class="sc-pills">
+          <label class="sc-pill on"><input type="radio" name="clips" value="6" checked>Most <small>4–8 clips</small></label>
+          <label class="sc-pill"><input type="radio" name="clips" value="25">Unlimited <small>every strong moment</small></label>
+          <label class="sc-pill"><input type="radio" name="clips" value="3">Just the best <small>top 3</small></label>
+        </div>
+      </div>
+
+      <label>Where to look</label>
+      <div class="sc-window">
+        {% for k, label in [('any','Anywhere'),('begin','Beginning'),('middle','Middle'),('end','End'),('custom','Pick times')] %}
+        <label class="sc-pill {{ 'on' if loop.first }}"><input type="radio" name="window" value="{{ k }}" {{ 'checked' if loop.first }}>{{ label }}</label>{% endfor %}
+      </div>
+      <div class="sc-range" hidden>
+        <input type="number" name="from_min" min="0" step="1" value="0" aria-label="From minute"><span class="muted">to</span>
+        <input type="number" name="to_min" min="0" step="1" value="30" aria-label="To minute"><span class="muted small">minutes into the stream</span>
+      </div>
+      <p class="muted small sc-hint">Long streams only fetch the audio first, then just the clip parts. A 4-hour VOD scans in a few minutes.</p>
+
+      <details class="sc-more">
+        <summary>Layout and clip length</summary>
+        <div class="sc-layouts">
+          {% for key, label, desc in layouts %}
+          <label class="sc-pill {{ 'on' if loop.first }}" title="{{ desc }}"><input type="radio" name="layout" value="{{ key }}" {{ 'checked' if loop.first }}>{{ label }}</label>{% endfor %}
+        </div>
+        {{ length_pick(lim, 'sc-len') }}
+      </details>
+
+      <button class="big sc-go" id="sc-go">Start scan</button>
+    </form>
+  </div>
+</div>
+<script>window.SXM_STREAMS = {{ {'p': p, 'target': target}|tojson }};</script>
+{% endblock %}

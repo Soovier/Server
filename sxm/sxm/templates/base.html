@@ -12,6 +12,7 @@
   <link rel="stylesheet" href="/static/style.css?v={{ asset_v }}">
   <script src="/static/chart.umd.js?v={{ asset_v }}"></script>
   <script src="/static/analytics.js?v={{ asset_v }}" defer></script>
+  <script src="/static/studio.js?v={{ asset_v }}" defer></script>
   <script src="/static/app.js?v={{ asset_v }}" defer></script>
 </head>
 <body>
@@ -20,6 +21,7 @@
   <a class="brand" href="/"><img src="/static/logo.svg" alt=""><span><b>SXM</b><small>STUDIO</small></span></a>
   <nav>
     <a href="/" class="{{ 'on' if nav=='home' }}"><i>🏠</i>Home</a>
+    <a href="/streams" class="{{ 'on' if nav=='streams' }}"><i>🔴</i>Streams</a>
     <a href="/trending" class="{{ 'on' if nav=='trending' }}"><i>🔥</i>Trending</a>
     <a href="/import" class="{{ 'on' if nav=='import' }}"><i>📥</i>Import</a>
     <a href="/review" class="{{ 'on' if nav=='review' }}"><i>🎬</i>Review{% if pending_count %}<span class="pill">{{ pending_count }}</span>{% endif %}</a>

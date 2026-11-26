@@ -924,3 +924,67 @@ def test_cancel_stops_queued_and_running_jobs(db):
         clipper.check_cancel(running)
     clipper._CANCEL.discard(running)
     assert not c.post(f"/api/cancel/{waiting}").json()["ok"]  # already gone
+
+
+def test_streams_parse_query_and_scan_queue(db, monkeypatch):
+    from sxm import importer, streams
+    monkeypatch.setattr(importer, "wake", lambda: None)
+    assert streams.parse_query("Lacy", "twitch") == {"kind": "creator", "platform": "twitch", "handle": "lacy"}
+    assert streams.parse_query("https://kick.com/adinross", "twitch")["platform"] == "kick"
+    assert streams.parse_query("https://www.twitch.tv/videos/123", "twitch")["kind"] == "video"
+    with pytest.raises(ValueError):
+        streams.queue_scan(db, "not a link")
+    with pytest.raises(ValueError):
+        streams.queue_scan(db, "https://www.twitch.tv/videos/1", window="custom", from_min=10, to_min=5)
+    sid = streams.queue_scan(db, "https://www.twitch.tv/videos/1", window="custom", from_min=10, to_min=40,
+                             prompt="the 1v4 clutch", clips=25)
+    s = db.one("SELECT * FROM sources WHERE id=?", (sid,))
+    assert (s["scan_from"], s["scan_to"], s["find_prompt"], s["clips_wanted"]) == (600, 2400, "the 1v4 clutch", 25)
+    assert clipper.scan_window(10000, s) == (600, 2400)
+    assert clipper.scan_window(9000, {"scan_part": "end"}) == (6000, 9000)
+    st = streams.scan_status(db, sid)
+    assert st["waiting"] and st["step"] == 0 and len(st["steps"]) == 4
+    db.update("sources", sid, status="clipping", progress="Cutting clip 2 of 4")
+    st = streams.scan_status(db, sid)
+    assert st["step"] == 3 and 75 <= st["overall"] < 100
+
+
+def test_clip_editor_clean_and_rule_edits():
+    from sxm import clip_edit
+    st = {"start": 10.0, "end": 40.0, "media_duration": 60.0, "layout": "blur", "aspect": "9:16", "facecam": None,
+          "game": None, "captions": True, "hook": "", "caption": "", "hashtags": "", "fps": 30, "height": 1080}
+    out = clip_edit.clean(st, {"start": -5, "end": 999, "layout": "nope", "aspect": "1:1", "facecam": [0.1, 0.1, 0.3, 0.3],
+                               "fps": "60", "height": "720", "captions": "false"})
+    assert (out["start"], out["end"], out["layout"], out["aspect"], out["fps"], out["height"]) == (0, 60, "blur", "1:1", 60, 720)
+    assert out["facecam"] == [0.1, 0.1, 0.3, 0.3] and out["captions"] is False
+    ch, reply = clip_edit._rule_edit(st, "make it 5 seconds shorter, captions off, facecam on top")
+    assert ch["end"] == 35 and ch["captions"] is False and ch["layout"] == "stack" and reply.startswith("Done")
+    assert clip_edit.view_of(100, 130, 5000) == (10, 220) and clip_edit.view_of(5, 20, 60) == (0, 60)
+
+
+def test_clip_editor_pages_and_ai_edit(db, monkeypatch, tmp_path):
+    from fastapi.testclient import TestClient
+    from sxm import clip_edit, streams
+    from sxm.web import app
+    monkeypatch.setattr(settings, "anthropic_api_key", "")
+    monkeypatch.setattr(clip_edit, "probe_duration", lambda p: 60.0)
+    renders = []
+    monkeypatch.setattr(clip_edit.threading, "Thread", lambda target, args, daemon: type("T", (), {"start": lambda s: renders.append(args)})())
+    media = tmp_path / "src.mp4"
+    media.write_bytes(b"x")
+    sid = db.insert("sources", {"platform": "manual", "external_id": "e", "url": "https://x.y/v", "status": "clipped", "found_at": utcnow()})
+    cid = db.insert("clips", {"source_id": sid, "start_s": 110, "end_s": 140, "status": "pending_review", "created_at": utcnow(),
+                              "hook": "OLD", "media_path": str(media), "media_offset": 100,
+                              "words_json": json.dumps([{"s": 12.0, "e": 12.4, "t": " hi"}])})
+    monkeypatch.setattr(streams, "creator", lambda p, h, fresh=False: {"found": True, "name": h, "avatar": "", "live": None,
+                        "vods": [], "clips": [], "platform": p, "handle": h, "channel_url": "", "checked": 0})
+    c = TestClient(app)
+    for u in ("/streams", "/streams?q=lacy", "/streams?q=https://www.twitch.tv/videos/9", f"/clip/{cid}"):
+        assert c.get(u).status_code == 200, u
+    d = c.get(f"/api/clip/{cid}").json()
+    assert (d["start"], d["end"], d["transcript"]) == (10, 40, "hi")
+    r = c.post(f"/api/clip/{cid}/ai", json={"ask": "10 seconds shorter"}).json()
+    assert r["ok"] and r["changes"]["end"] == 30 and renders == [(cid,)]
+    row = db.one("SELECT start_s, end_s FROM clips WHERE id=?", (cid,))
+    assert (row["start_s"], row["end_s"]) == (110, 130)
+    assert c.post(f"/api/clip/{cid}/favorite").json()["favorite"] is True

@@ -511,6 +511,7 @@
     inventoryPage(root);
     findPage(root);
     analyticsPage(root);
+    if (window.SXMStudio) window.SXMStudio(root);
     const started = new URLSearchParams(location.search).get('started');
     if (started) toast(started === 'pipeline' ? '⚡ Finding and clipping now. New clips land in Review.' : `Started ${started}.`);
     live();

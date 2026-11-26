@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="ax sp" id="sp" data-sid="{{ s.id }}">
+  <a class="sp-back" href="/streams">← Streams</a>
+  <div class="sp-card ax-card ax-in" style="--i:0">
+    <div class="sp-ring" aria-hidden="true">
+      <svg viewBox="0 0 120 120" width="148" height="148">
+        <circle cx="60" cy="60" r="52" class="sp-track"/>
+        <circle cx="60" cy="60" r="52" class="sp-arc" id="sp-arc" pathLength="100" style="--p:{{ s.overall }}"/>
+      </svg>
+      <div class="sp-pct"><b id="sp-pct">{{ s.overall }}</b><small>%</small></div>
+    </div>
+    <div class="sp-info">
+      <span class="ax-k" id="sp-kicker">{{ 'Quick Find' if s.prompt else 'Scanning' }}{% if s.streamer %} · {{ s.streamer }}{% endif %}</span>
+      <h1 class="sp-title">{{ s.title }}</h1>
+      {% if s.prompt %}<p class="sp-prompt">“{{ s.prompt }}”</p>{% endif %}
+      <p class="sp-now" id="sp-now">{{ s.progress or 'Starting…' }}</p>
+    </div>
+    <ol class="sp-steps" id="sp-steps">
+      {% for st in s.steps %}
+      <li class="{{ 'done' if loop.index0 < s.step else ('on' if loop.index0 == s.step else '') }}">
+        <span class="sp-bullet"><svg viewBox="0 0 12 12" width="12" height="12"><path d="M2.5 6.2 5 8.6 9.5 3.6"/></svg></span>
+        <span><b>{{ st.title }}</b><small>{{ st.sub }}</small></span>
+      </li>{% endfor %}
+    </ol>
+    <p class="sp-err" id="sp-err" {{ '' if s.error and s.status == 'failed' else 'hidden' }}>{{ s.error }}</p>
+    <div class="sp-actions" id="sp-actions">
+      <a class="btn ghost" href="/inventory" id="sp-bg">Run in background</a>
+      <button type="button" class="ghost cancel-btn" data-cancel="{{ s.id }}" id="sp-cancel" {{ 'hidden' if s.status in ('clipped','failed','skipped') }}>Cancel scan</button>
+    </div>
+  </div>
+
+  <section class="sp-found">
+    <div class="ax-sec-head"><h2 class="ax-h">Clips found</h2><span class="ax-k" id="sp-count">{{ s.clips|length }} so far</span></div>
+    <div class="sp-clips" id="sp-clips">
+      {% for c in s.clips %}
+      <a class="sp-clip" href="/clip/{{ c.id }}"><span class="sp-thumb">{% if c.thumb_path %}<img src="/media/clips/clip_{{ c.id }}.jpg" alt="" loading="lazy">{% endif %}<i>{{ (c.secs or 0)|round|int }}s</i></span><b>{{ c.hook or 'Clip' }}</b></a>
+      {% else %}
+      <p class="muted sp-empty">Clips show up here the moment each one is cut.</p>
+      {% endfor %}
+    </div>
+  </section>
+</div>
+<script>window.SXM_SCAN = {{ s|tojson }};</script>
+{% endblock %}

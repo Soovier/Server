@@ -377,71 +377,214 @@ def target_length(lo: int, hi: int) -> int:
     return min(hi, max(lo, round(lo * 0.4 + hi * 0.6)))
 
 
+PAD = 15.0          # seconds kept either side of a clip so the editor can stretch it
+FAST_MIN_S = 20 * 60  # long streams: listen to the audio first, fetch only the clip parts
+
+
+def scan_window(duration: float, src: dict) -> tuple[float, float]:
+    """Which part of the stream to scan (seconds)."""
+    part = src.get("scan_part")
+    if duration and part in ("begin", "middle", "end"):
+        third = duration / 3
+        a = {"begin": 0.0, "middle": third, "end": 2 * third}[part]
+        return a, a + third
+    a = float(src.get("scan_from") or 0)
+    b = float(src.get("scan_to") or 0) or duration
+    if duration:
+        b = min(b, duration)
+    return max(0.0, a), max(a, b)
+
+
+def _section_cmd(url: str, out_tmpl: str, a: float, b: float, audio_only: bool) -> list[str]:
+    ytdlp = shutil.which("yt-dlp")
+    base = [ytdlp] if ytdlp else [__import__("sys").executable, "-m", "yt_dlp"]
+    fmt = "ba/b" if audio_only else "bv*[height<=1080]+ba/b[height<=1080]/b"
+    cmd = base + ["-f", fmt, "-o", out_tmpl, "--no-playlist", "--newline", "--progress", "--progress-template",
+                  "download:SXMPROG %(progress._percent_str)s %(progress.eta)s", "--print", "after_move:filepath",
+                  "--download-sections", f"*{a:.2f}-{b:.2f}"]
+    if not audio_only:
+        cmd += ["--force-keyframes-at-cuts", "--merge-output-format", "mp4"]
+    return cmd + [url]
+
+
+def download_section(url: str, dest: Path, a: float, b: float, audio_only: bool = False,
+                     on_progress=None, job: int | None = None) -> Path:
+    """Fetch only part of a stream (seconds a..b). Much faster than the whole VOD."""
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    cmd = _section_cmd(url, str(dest) + ".%(ext)s", a, b, audio_only)
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                            encoding="utf-8", errors="replace")
+    if job is not None:
+        _PROCS[job] = proc
+    lines: list[str] = []
+    for line in proc.stdout:  # type: ignore[union-attr]
+        line = line.strip()
+        if line.startswith("SXMPROG"):
+            _report(on_progress, *line.split()[1:3])
+        elif line:
+            lines.append(line)
+            del lines[:-40]
+    proc.wait()
+    if job is not None:
+        _PROCS.pop(job, None)
+    check_cancel(job)
+    if proc.returncode != 0:
+        raise RuntimeError("yt-dlp failed: " + "\n".join(lines)[-600:])
+    paths = [l for l in lines if Path(l).suffix and Path(l).exists()]
+    if not paths:
+        found = sorted(dest.parent.glob(dest.name + ".*"))
+        if not found:
+            raise RuntimeError("yt-dlp gave no file")
+        return found[-1]
+    return Path(paths[-1])
+
+
+def remote_duration(url: str) -> float:
+    ytdlp = shutil.which("yt-dlp")
+    base = [ytdlp] if ytdlp else [__import__("sys").executable, "-m", "yt_dlp"]
+    try:
+        p = subprocess.run(base + ["--no-warnings", "--skip-download", "--print", "%(duration)s|%(is_live)s", url],
+                           capture_output=True, text=True, timeout=60, encoding="utf-8", errors="replace")
+        d, live = (p.stdout.strip().splitlines() or ["|"])[-1].split("|")[:2]
+        if live == "True":
+            raise RuntimeError("This stream is still live. Scan it after it ends, or clip its hot moments now.")
+        return float(d)
+    except (ValueError, subprocess.TimeoutExpired, OSError):
+        return 0.0
+
+
+def quick_find(prompt: str, words: list[Word], energy_z: list[float], duration: float,
+               length: int, k: int = 1) -> list[Moment]:
+    """Find the moment you describe ("when chat lost it over the 1v3"): Claude reads the
+    timed transcript; without a key, the best keyword match plus hype wins."""
+    if not words:
+        return []
+    chunks, cur, t0 = [], [], words[0].start
+    for w in words:
+        cur.append(w.text.strip())
+        if w.end - t0 >= 20:
+            chunks.append((t0, w.end, " ".join(cur)))
+            cur, t0 = [], w.end
+    if cur:
+        chunks.append((t0, words[-1].end, " ".join(cur)))
+    picks: list[float] = []
+    if settings.anthropic_api_key:
+        lines = "\n".join(f"[{int(a)}-{int(b)}] {t}" for a, b, t in chunks)[:60000]
+        try:
+            from .campaign_finder import ask_claude
+            txt = ask_claude(
+                f"Here is a timed transcript of a livestream (seconds in brackets).\n{lines}\n\n"
+                f"Find the moment the user describes: {prompt!r}. Reply with ONLY a JSON array of up to {k} "
+                "numbers: the second where each best-matching moment starts, best first.", max_tokens=200)
+            picks = [float(x) for x in json.loads(txt[txt.find("["): txt.rfind("]") + 1])][:k]
+        except Exception as e:
+            picks = []
+    if not picks:
+        terms = [t for t in re.findall(r"[a-z0-9']+", prompt.lower()) if len(t) > 2]
+
+        def score(c):
+            low = c[2].lower()
+            hype = max(energy_z[int(c[0]):int(c[1]) + 1] or [0])
+            return sum(low.count(t) for t in terms) * 3 + hype
+        picks = [c[0] for c in sorted(chunks, key=score, reverse=True)[:k]]
+    out = []
+    for p in picks:
+        st = max(0.0, p - 2)
+        m = Moment(st, min(duration, st + length), 9.0)
+        out.append(snap_to_speech(m, words))
+    return out
+
+
+def _rel_words(words: list[Word], a: float, b: float) -> list[dict]:
+    return [{"s": round(w.start - a, 2), "e": round(w.end - a, 2), "t": w.text} for w in words if a <= w.start < b]
+
+
 def clip_source(db: DB, source_id: int, renderer=render_clip) -> list[int]:
     src = db.one("SELECT * FROM sources WHERE id=?", (source_id,))
     if not src:
         return []
     camp = db.one("SELECT * FROM campaigns WHERE id=?", (src["campaign_id"],)) if src["campaign_id"] else None
     want = int(src.get("clips_wanted") or settings.clips_per_source)
-
+    prompt = (src.get("find_prompt") or "").strip()
     _CANCEL.discard(source_id)
 
     def step(msg: str, **extra) -> None:
         check_cancel(source_id)
         db.update("sources", source_id, progress=msg, **extra)
+
+    def dl_progress_for(label: str):
+        last = [0.0]
+
+        def cb(pct, eta):
+            if time.time() - last[0] < 2:
+                return
+            last[0] = time.time()
+            step(f"{label} {pct:.0f}% · {eta_text(eta)}" if pct is not None else label)
+        return cb
     try:
         path = Path(src["local_path"]) if src.get("local_path") and Path(src["local_path"]).exists() else None
-        if not path:
-            step("Downloading the video", status="downloading", error=None)
-            last = [0.0]
-
-            def dl_progress(pct, eta):
-                if time.time() - last[0] < 2:
-                    return
-                last[0] = time.time()
-                step(f"Downloading {pct:.0f}% · {eta_text(eta)}" if pct is not None else "Downloading the video")
-            path = download(src["url"], settings.media_dir / "sources", on_progress=dl_progress, job=source_id)
-            db.update("sources", source_id, local_path=str(path), status="downloaded")
-        step("Finding the best moments", status="clipping", error=None)
+        remote = not path and str(src.get("url", "")).startswith("http")
+        offset = 0.0     # where the analysed media starts in the original stream
+        fast = False
+        if remote:
+            step("Fetching the stream", status="downloading", error=None)
+            full = float(src.get("duration_s") or 0) or remote_duration(src["url"])
+            if full and not src.get("duration_s"):
+                db.update("sources", source_id, duration_s=full)
+            a, b = scan_window(full, src)
+            fast = bool(full) and (full >= FAST_MIN_S or a > 0 or (b and b < full - 1) or bool(prompt)) and full > max(60, length_limits(db, src)[1] + 5)
+            if fast:
+                step("Fetching the stream audio", status="downloading")
+                path = download_section(src["url"], settings.media_dir / "sources" / f"scan_{source_id}_audio",
+                                        a, b, audio_only=True, on_progress=dl_progress_for("Fetching the stream audio"),
+                                        job=source_id)
+                offset = a
+            else:
+                step("Downloading the video", status="downloading")
+                path = download(src["url"], settings.media_dir / "sources",
+                                on_progress=dl_progress_for("Downloading"), job=source_id)
+                db.update("sources", source_id, local_path=str(path), status="downloaded")
+        step("Transcribing audio", status="clipping", error=None)
         duration = probe_duration(path) or float(src.get("duration_s") or 0)
-        if not src.get("duration_s") and duration:
+        if not src.get("duration_s") and duration and not fast:
             db.update("sources", source_id, duration_s=duration)
-        step("Listening for words (captions)")
         words = transcribe(path)
-        step("Measuring hype and reactions")
+        step("Finding the moments")
         energy = audio_energy(path)
         energy_z = _zscores(energy)
         min_s, max_s = length_limits(db, src)
-        short_source = duration <= max_s + 5
-        if not short_source:
-            step("Detecting scene changes")
-        cuts = [] if short_source else analysis.scene_cuts(path)
+        length = target_length(min_s, max_s)
+        short_source = not fast and duration <= max_s + 5
+        cuts = [] if (short_source or fast) else analysis.scene_cuts(path)
         if short_source:
             moments = [Moment(0.0, duration, 1.0)]
             moments = [snap_to_speech(moments[0], words) if words else moments[0]]
             if not words:
                 moments[0].words = []
         else:
-            length = target_length(min_s, max_s)
-            windows = score_windows(energy, words, duration, length, cuts=cuts)
-            moments = pick_moments(windows, want * 2)
-            moments = [snap_to_speech(m, words) for m in moments]
+            if prompt:
+                moments = quick_find(prompt, words, energy_z, duration, length, k=max(1, min(want, 3)))
+            else:
+                windows = score_windows(energy, words, duration, length, cuts=cuts)
+                moments = pick_moments(windows, want * 2)
+                moments = [snap_to_speech(m, words) for m in moments]
             for m in moments:
                 cut_start = analysis.snap_to_cut(m.start, cuts)
                 if cut_start != m.start:  # open on a clean cut; re-time captions
                     m.start = cut_start
-                    m.words = [Word(w.start - m.start, w.end - m.start, w.text) for w in words
-                               if m.start <= w.start < m.end]
                 m.end = min(m.end, m.start + max_s)  # your longest
                 if m.end - m.start < min_s:  # your shortest
                     m.end = min(duration, m.start + min_s)
-                    m.words = [Word(w.start - m.start, w.end - m.start, w.text) for w in words
-                               if m.start <= w.start < m.end]
-                m.words = [w for w in m.words if w.start < m.end - m.start]
-        step("Writing hooks and captions")
-        moments = ai_refine(moments, words, src["title"] or "", src["streamer"] or "",
-                            camp["rules"] if camp else "")
-        moments = sorted(moments, key=lambda m: m.score, reverse=True)[:want]
+                m.words = [Word(w.start - m.start, w.end - m.start, w.text) for w in words
+                           if m.start <= w.start < m.end]
+        if prompt:
+            for m in moments:
+                m.score = max(m.score, 9.0)
+        else:
+            step("Writing hooks and captions")
+            moments = ai_refine(moments, words, src["title"] or "", src["streamer"] or "",
+                                camp["rules"] if camp else "")
+            moments = sorted(moments, key=lambda m: m.score, reverse=True)[:want]
         bursts = analysis.reaction_bursts(energy_z)
         fixed_cam = analysis.parse_box(settings.facecam_box)
 
@@ -450,28 +593,41 @@ def clip_source(db: DB, source_id: int, renderer=render_clip) -> list[int]:
             default_copy(m, src["streamer"] or "", src["title"] or "")
             if camp and camp.get("required_tags"):
                 m.hashtags = (m.hashtags + " " + camp["required_tags"]).strip()
-            # Framing: facecam on top when there is one, else blur (or what you set).
-            step(f"Editing clip {len(ids) + 1} of {len(moments)}")
+            step(f"Cutting clip {len(ids) + 1} of {len(moments)}")
+            # The video this clip is cut from, and where it sits in the original stream.
+            if fast:
+                seg_a = max(0.0, offset + m.start - PAD)
+                seg_b = offset + m.end + PAD
+                media = download_section(src["url"], settings.media_dir / "sources" / f"scan_{source_id}_{len(ids)}",
+                                         seg_a, seg_b, job=source_id)
+                media_off = seg_a
+            else:
+                media, media_off = path, 0.0
+            ls, le = offset + m.start - media_off, offset + m.end - media_off   # times inside `media`
             mode, cam = (src.get("layout") or settings.reframe_mode), None
             if mode in ("auto", "stack"):
-                cam = fixed_cam or analysis.detect_facecam(path, m.start, m.end)
+                cam = fixed_cam or analysis.detect_facecam(media, ls, le)
                 mode = "stack" if cam else "blur"
-            bars = analysis.black_bars(path, m.start + 1)
+            bars = analysis.black_bars(media, ls + 1)
             punches = [b - m.start for b in bursts if m.start + 0.8 <= b <= m.end - 1.0] \
                 if settings.zoom_punches else []
             risk = analysis.copyright_risk(analysis.music_ratio(energy_z, words, m.start, m.end), m.text, m.ai_risk)
             clip_id = db.insert("clips", {
-                "source_id": source_id, "campaign_id": src["campaign_id"], "start_s": m.start, "end_s": m.end,
-                "score": round(m.score, 2), "hook": m.hook, "caption": m.caption, "hashtags": m.hashtags,
-                "transcript": m.text, "status": "rendering", "created_at": utcnow(), "layout": mode,
-                "copyright_risk": risk,
+                "source_id": source_id, "campaign_id": src["campaign_id"], "start_s": offset + m.start,
+                "end_s": offset + m.end, "score": round(m.score, 2), "hook": m.hook, "caption": m.caption,
+                "hashtags": m.hashtags, "transcript": m.text, "status": "rendering", "created_at": utcnow(),
+                "layout": mode, "copyright_risk": risk, "media_path": str(media), "media_offset": media_off,
+                "words_json": json.dumps(_rel_words([Word(offset + w.start, offset + w.end, w.text) for w in words],
+                                                    media_off, media_off + (le + PAD))),
+                "edit_json": json.dumps({"start": round(ls, 2), "end": round(le, 2), "layout": mode,
+                                         "facecam": [cam.x, cam.y, cam.w, cam.h] if cam else None}),
             })
             out = settings.media_dir / "clips" / f"clip_{clip_id}.mp4"
             if source_id in _CANCEL:
                 db.run("DELETE FROM clips WHERE id=?", (clip_id,))
                 raise Cancelled()
             try:
-                renderer(path, out, m.start, m.end, m.words, m.hook, mode=mode, brand=settings.brand_handle,
+                renderer(media, out, ls, le, m.words, m.hook, mode=mode, brand=settings.brand_handle,
                          facecam=cam, bars=bars, punches=punches[:6])
                 thumb = thumbnail(out, out.with_suffix(".jpg")) if out.exists() else None
                 check = qc.check_clip(out, m.end - m.start, max_s=max_s + 1,
@@ -482,6 +638,11 @@ def clip_source(db: DB, source_id: int, renderer=render_clip) -> list[int]:
             except Exception as e:
                 db.update("clips", clip_id, status="failed", review_note=str(e)[:500])
         _CANCEL.discard(source_id)
+        if fast and path and path.exists():
+            try:
+                path.unlink()  # the scan audio isn't needed any more
+            except OSError:
+                pass
         db.update("sources", source_id, status="clipped", clips_made=len(ids),
                   progress=f"Done: {len(ids)} clip{'s' if len(ids) != 1 else ''} ready to review")
         return ids

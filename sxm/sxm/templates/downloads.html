@@ -41,6 +41,7 @@
       {% endif %}
       <div class="row">
         {% if c.has_file %}<a class="btn big" href="/download/{{ c.id }}" download data-no-boost data-downloaded>⬇ Download video</a>{% endif %}
+        <a class="btn ghost" href="/clip/{{ c.id }}">✂️ Edit</a>
         <button type="button" class="ghost" data-copy-all="#cap-{{ c.id }}">Copy all + download</button>
       </div>
     </div>

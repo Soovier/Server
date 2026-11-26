@@ -15,7 +15,10 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import analytics, autopost, campaign_finder, campaigns, channel_stats, home, importer, inventory, review, trending
+from . import (analytics, autopost, campaign_finder, campaigns, channel_stats, clip_edit, home, importer, inventory,
+               review, streams, trending)
+from starlette.concurrency import run_in_threadpool
+
 from .config import settings
 from .db import get_db
 from .discovery import add_manual_url
@@ -242,6 +245,139 @@ def media(kind: str, name: str):
     if not path.exists():
         raise HTTPException(404)
     return FileResponse(path)
+
+
+# ---------------- Streams (live + past streams + scan) ----------------
+
+@app.get("/streams", response_class=HTMLResponse)
+def streams_page(request: Request, p: str = "twitch", q: str = "", msg: str = ""):
+    db = get_db()
+    p = p if p in streams.PLATFORMS else "twitch"
+    target = streams.parse_query(q, p) if q.strip() else None
+    if target and target["kind"] == "creator":
+        p = target["platform"]
+    return page(request, "streams.html", nav="streams", p=p, q=q, target=target, favs=streams.favorites(db),
+                fav=bool(target and target["kind"] == "creator" and streams.is_favorite(db, p, target["handle"])),
+                host=request.headers.get("host", "localhost"), lim=_limits(db), msg=msg,
+                layouts=LAYOUT_INFO)
+
+
+@app.get("/api/streams/creator")
+def api_creator(p: str, h: str, fresh: int = 0, request: Request = None):
+    d = streams.creator(p, h, fresh=bool(fresh))
+    host = request.headers.get("host", "localhost") if request else "localhost"
+    if d.get("live"):
+        d["embed"] = streams.embed_url(d["platform"], d["handle"], host, d["live"].get("video_id", ""))
+    return JSONResponse(d)
+
+
+@app.get("/api/streams/live")
+def api_live_board():
+    return JSONResponse(streams.live_board(get_db()))
+
+
+@app.post("/streams/fav")
+def streams_fav(p: str = Form(...), h: str = Form(...), name: str = Form(""), avatar: str = Form("")):
+    added = streams.toggle_favorite(get_db(), p, h, name, avatar)
+    return JSONResponse({"ok": True, "fav": added})
+
+
+@app.post("/streams/scan")
+def streams_scan(url: str = Form(...), title: str = Form(""), streamer: str = Form(""), platform: str = Form("manual"),
+                 clips: int = Form(6), window: str = Form("any"), from_min: float = Form(0), to_min: float = Form(0),
+                 duration: float = Form(0), prompt: str = Form(""), layout: str = Form("auto"),
+                 min_s: int = Form(0), max_s: int = Form(0)):
+    db = get_db()
+    try:
+        sid = streams.queue_scan(db, url, title=title, streamer=streamer, platform=platform, clips=clips,
+                                 window=window, from_min=from_min, to_min=to_min, duration=duration, prompt=prompt,
+                                 layout=layout, min_s=min_s, max_s=max_s)
+    except ValueError as e:
+        return RedirectResponse("/streams?msg=" + quote_plus(str(e)), 303)
+    return RedirectResponse(f"/scan/{sid}", 303)
+
+
+@app.get("/scan/{sid}", response_class=HTMLResponse)
+def scan_page(request: Request, sid: int):
+    st = streams.scan_status(get_db(), sid)
+    if not st:
+        raise HTTPException(404)
+    return page(request, "scan.html", nav="streams", s=st)
+
+
+@app.get("/api/scan/{sid}")
+def api_scan(sid: int):
+    st = streams.scan_status(get_db(), sid)
+    if not st:
+        raise HTTPException(404)
+    return JSONResponse(st)
+
+
+# ---------------- Clip editor ----------------
+
+@app.get("/clip/{clip_id}", response_class=HTMLResponse)
+def clip_page(request: Request, clip_id: int):
+    st = clip_edit.state(get_db(), clip_id)
+    if not st:
+        raise HTTPException(404)
+    return page(request, "clip.html", nav="review", c=st)
+
+
+@app.get("/api/clip/{clip_id}")
+def api_clip(clip_id: int):
+    st = clip_edit.state(get_db(), clip_id)
+    if not st:
+        raise HTTPException(404)
+    return JSONResponse(st)
+
+
+@app.post("/api/clip/{clip_id}/save")
+async def api_clip_save(clip_id: int, request: Request):
+    body = await request.json()
+    try:
+        st = clip_edit.save(get_db(), clip_id, body or {}, note=str((body or {}).get("note", ""))[:200])
+    except ValueError as e:
+        return JSONResponse({"ok": False, "msg": str(e)}, 400)
+    return JSONResponse({"ok": True, "msg": "Rendering your edit…", "state": {k: st[k] for k in (
+        "start", "end", "layout", "aspect", "facecam", "game", "captions", "hook", "caption", "fps", "height")}})
+
+
+@app.post("/api/clip/{clip_id}/ai")
+async def api_clip_ai(clip_id: int, request: Request):
+    body = await request.json()
+    try:
+        r = await run_in_threadpool(clip_edit.ai_edit, get_db(), clip_id, str((body or {}).get("ask", "")))
+    except ValueError as e:
+        return JSONResponse({"ok": False, "msg": str(e)}, 400)
+    return JSONResponse({"ok": True, **r})
+
+
+@app.post("/api/clip/{clip_id}/favorite")
+def api_clip_fav(clip_id: int):
+    db = get_db()
+    c = db.one("SELECT favorite FROM clips WHERE id=?", (clip_id,))
+    if not c:
+        raise HTTPException(404)
+    db.update("clips", clip_id, favorite=0 if c["favorite"] else 1)
+    return JSONResponse({"ok": True, "favorite": not c["favorite"]})
+
+
+@app.get("/clip/{clip_id}/source")
+def clip_source_media(clip_id: int):
+    db = get_db()
+    c = db.one("SELECT * FROM clips WHERE id=?", (clip_id,))
+    media, _ = clip_edit.media_of(db, c) if c else (None, 0)
+    if not media:
+        raise HTTPException(404)
+    return FileResponse(media)
+
+
+@app.get("/clip/{clip_id}/strip.jpg")
+def clip_strip(clip_id: int):
+    p = clip_edit.filmstrip(get_db(), clip_id)
+    if not p:
+        raise HTTPException(404)
+    return FileResponse(p, headers={"Cache-Control": "no-cache"})
 
 
 # ---------------- Schedule ----------------
