@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SXM</title>
+  <link rel="icon" href="/static/logo.svg">
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/chart.umd.js"></script>
+</head>
+<body>
+<header>
+  <a class="brand" href="/"><img src="/static/logo.svg" alt=""><span><b>SXM</b><small>STUDIO</small></span></a>
+  <nav>
+    <a href="/" class="{{ 'on' if nav=='dashboard' }}">Analytics</a>
+    <a href="/review" class="{{ 'on' if nav=='review' }}">Review{% if pending_count %}<span class="pill">{{ pending_count }}</span>{% endif %}</a>
+    <a href="/schedule" class="{{ 'on' if nav=='schedule' }}">Schedule</a>
+    <a href="/campaigns" class="{{ 'on' if nav=='campaigns' }}">Campaigns{% if submit_count %}<span class="pill">{{ submit_count }}</span>{% endif %}</a>
+    <a href="/sources" class="{{ 'on' if nav=='sources' }}">Sources</a>
+    <a href="/setup" class="{{ 'on' if nav=='setup' }}">Setup</a>
+  </nav>
+  <div class="status">
+    {% if paused %}<span class="tag warn">Paused</span>{% else %}<span class="tag good">Running</span>{% endif %}
+    <span class="tag {{ 'good' if auto_approve else '' }}">Auto-approve {{ 'ON' if auto_approve else 'OFF' }}</span>
+  </div>
+</header>
+<main>
+{% if submit_count %}
+  <div class="notice">⏱ {{ submit_count }} campaign post{{ 's' if submit_count > 1 }} waiting to be submitted. Content Rewards needs the link within 30 minutes of posting. <a href="/campaigns">Submit now</a></div>
+{% endif %}
+{% block content %}{% endblock %}
+</main>
+</body>
+</html>

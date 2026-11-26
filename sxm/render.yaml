@@ -1,0 +1,27 @@
+# One-click deploy of SXM Campaigns on Render (render.com > New > Blueprint).
+services:
+  - type: web
+    name: sxm-campaigns
+    runtime: docker
+    rootDir: sxm
+    dockerfilePath: ./Dockerfile.campaigns
+    plan: starter
+    disk:
+      name: sxm-campaigns-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      - key: BASE_URL
+        sync: false
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: YOUTUBE_API_KEY
+        sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: PLATFORM_FEE_PERCENT
+        value: "10"
