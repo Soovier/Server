@@ -17,7 +17,7 @@
   {% for p in posts %}
   <tr>
     <td>{{ p.scheduled_at|local }}</td>
-    <td><span class="tag {{ p.platform }}">{{ p.platform }}</span></td>
+    <td><span class="tag {{ p.platform }}">{{ p.platform }}</span>{% if p.channel_name %}<div class="muted small">{{ p.channel_name }}</div>{% endif %}</td>
     <td>#{{ p.clip_id }} {{ p.hook }}</td>
     <td><span class="tag {{ 'bad' if p.status=='failed' else '' }}">{{ p.status }}</span>{% if p.error %}<div class="muted" style="max-width:320px">{{ p.error[:200] }}</div>{% endif %}</td>
     <td>

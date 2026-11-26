@@ -40,7 +40,9 @@ def login_url(state: str) -> str:
         "client_id": settings.google_client_id,
         "redirect_uri": f"{settings.base_url}/oauth/google/callback",
         "response_type": "code", "scope": " ".join(SCOPES), "access_type": "offline",
-        "prompt": "consent", "include_granted_scopes": "true", "state": state,
+        # select_account: Google shows the account + channel picker every time, so
+        # each Connect can add a different channel (including Brand Account channels).
+        "prompt": "select_account consent", "include_granted_scopes": "true", "state": state,
     })
 
 
@@ -49,35 +51,61 @@ def _expiry(seconds: int) -> str:
 
 
 def finish_login(db: DB, code: str, http: httpx.Client | None = None) -> dict:
+    """Save every channel this Google login can post to.
+
+    Google issues one login per channel: when an account owns several channels
+    (Brand Accounts), its picker asks which one, and the token works for that
+    channel. Connect again and pick another channel to add it too.
+    """
     http = http or httpx.Client(timeout=30)
     tok = _check(http.post(TOKEN_URL, data={
         "code": code, "client_id": settings.google_client_id, "client_secret": settings.google_client_secret,
         "redirect_uri": f"{settings.base_url}/oauth/google/callback", "grant_type": "authorization_code",
     }))
-    ch = _check(http.get("https://www.googleapis.com/youtube/v3/channels", params={"part": "snippet", "mine": "true"},
+    ch = _check(http.get("https://www.googleapis.com/youtube/v3/channels",
+                         params={"part": "snippet,statistics", "mine": "true", "maxResults": 50},
                          headers={"Authorization": f"Bearer {tok['access_token']}"})).get("items", [])
     if not ch:
-        raise YouTubeError("No YouTube channel on that Google account")
-    db.save_account("youtube", account_id=ch[0]["id"], name=ch[0]["snippet"]["title"],
-                    access_token=tok["access_token"], refresh_token=tok.get("refresh_token"),
-                    expires_at=_expiry(tok.get("expires_in", 3600)))
-    return {"channel": ch[0]["snippet"]["title"]}
+        raise YouTubeError("That Google account has no YouTube channel. Pick the channel itself on Google's screen.")
+    saved = []
+    for c in ch:
+        sn, st = c.get("snippet", {}), c.get("statistics", {})
+        existing = db.one("SELECT id FROM channels WHERE platform='youtube' AND account_id=?", (c["id"],))
+        db.save_channel("youtube", c["id"], enabled=True if not existing else None,
+                        name=sn.get("title", ""), handle=sn.get("customUrl", ""),
+                        avatar=((sn.get("thumbnails") or {}).get("default") or {}).get("url", ""),
+                        access_token=tok["access_token"],
+                        **({"refresh_token": tok["refresh_token"]} if tok.get("refresh_token") else {}),
+                        expires_at=_expiry(tok.get("expires_in", 3600)),
+                        extra={"subscribers": int(st.get("subscriberCount", 0) or 0),
+                               "videos": int(st.get("videoCount", 0) or 0)})
+        saved.append(sn.get("title", c["id"]))
+    return {"channels": saved, "channel": saved[0]}
 
 
-def ensure_fresh_token(db: DB, http: httpx.Client | None = None) -> str:
-    acc = db.get_account("youtube")
-    if not acc:
+def _yt_channel(db: DB, channel: dict | int | None) -> dict:
+    if isinstance(channel, int):
+        channel = db.get_channel(channel)
+    channel = channel or db.get_account("youtube")
+    if not channel:
         raise YouTubeError("YouTube not connected")
+    return channel
+
+
+def ensure_fresh_token(db: DB, channel: dict | int | None = None, http: httpx.Client | None = None) -> str:
+    acc = _yt_channel(db, channel)
+    acc = db.get_channel(acc["id"]) or acc
     if acc.get("expires_at") and acc["expires_at"] > datetime.now(timezone.utc).isoformat():
         return acc["access_token"]
     if not acc.get("refresh_token"):
-        raise YouTubeError("YouTube token expired; reconnect on the Setup page")
+        raise YouTubeError(f"YouTube login for {acc.get('name')} expired; reconnect it on the Setup page")
     http = http or httpx.Client(timeout=30)
     tok = _check(http.post(TOKEN_URL, data={
         "client_id": settings.google_client_id, "client_secret": settings.google_client_secret,
         "refresh_token": acc["refresh_token"], "grant_type": "refresh_token",
     }))
-    db.save_account("youtube", access_token=tok["access_token"], expires_at=_expiry(tok.get("expires_in", 3600)))
+    db.update("channels", acc["id"], access_token=tok["access_token"],
+              expires_at=_expiry(tok.get("expires_in", 3600)))
     return tok["access_token"]
 
 
@@ -88,9 +116,9 @@ def _title(clip: dict) -> str:
     return base[:100]
 
 
-def publish_youtube(db: DB, clip: dict, http: httpx.Client | None = None) -> dict:
+def publish_youtube(db: DB, clip: dict, channel: dict | None = None, http: httpx.Client | None = None) -> dict:
     http = http or httpx.Client(timeout=60)
-    token = ensure_fresh_token(db, http)
+    token = ensure_fresh_token(db, channel, http)
     path = Path(clip["video_path"])
     size = path.stat().st_size
     tags = [t.lstrip("#") for t in (clip.get("hashtags") or "").split() if t.startswith("#")]
@@ -116,13 +144,14 @@ def publish_youtube(db: DB, clip: dict, http: httpx.Client | None = None) -> dic
     return {"external_id": vid, "permalink": f"https://www.youtube.com/shorts/{vid}"}
 
 
-def youtube_metrics(db: DB, video_ids: list[str], since: date, http: httpx.Client | None = None) -> dict[str, dict]:
+def youtube_metrics(db: DB, video_ids: list[str], since: date, http: httpx.Client | None = None,
+                    channel: dict | None = None) -> dict[str, dict]:
     """Per-video totals. Analytics lags ~2 days, so live view counts come from the
     Data API and watch time / revenue from the Analytics API."""
     if not video_ids:
         return {}
     http = http or httpx.Client(timeout=30)
-    token = ensure_fresh_token(db, http)
+    token = ensure_fresh_token(db, channel, http)
     h = {"Authorization": f"Bearer {token}"}
     out: dict[str, dict] = {v: {"views": 0, "likes": 0, "comments": 0, "shares": 0, "watch_time_s": 0.0,
                                 "avg_view_s": 0.0, "revenue_usd": 0.0, "raw": {}} for v in video_ids}

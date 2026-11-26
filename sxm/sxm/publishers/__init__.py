@@ -21,12 +21,14 @@ def publish_post(db: DB, post_id: int) -> dict:
     clip = db.one("SELECT * FROM clips WHERE id=?", (post["clip_id"],))
     db.update("posts", post_id, status="publishing", attempts=(post["attempts"] or 0) + 1)
     try:
-        res = PUBLISHERS[post["platform"]](db, clip)
+        channel = db.get_channel(post["channel_id"]) if post.get("channel_id") else None
+        res = PUBLISHERS[post["platform"]](db, clip, channel)
     except Exception as e:
         failed = (post["attempts"] or 0) + 1 >= MAX_ATTEMPTS
         db.update("posts", post_id, status="failed" if failed else "scheduled", error=str(e)[:800])
         if failed:
-            notify(f"Post failed on {post['platform']} for clip #{clip['id']}: {e}")
+            where = (db.get_channel(post["channel_id"]) or {}).get("name") if post.get("channel_id") else None
+            notify(f"Post failed on {post['platform']}{f' ({where})' if where else ''} for clip #{clip['id']}: {e}")
         raise
     db.update("posts", post_id, status="posted", external_id=res["external_id"], permalink=res.get("permalink"),
               posted_at=utcnow(), error=None)

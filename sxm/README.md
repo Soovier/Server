@@ -31,11 +31,39 @@ startup) and it runs on its own schedule.
 | Step | What runs | When |
 |---|---|---|
 | Find | Campaign source URLs, Twitch Helix (top clips + VODs), YouTube Data API uploads | `DISCOVER_CRON` (every 3 h) |
-| Clip | yt-dlp download → FFmpeg audio energy → faster-whisper transcript (local, free) → window scoring → optional Claude pass for best moments + hooks/captions → FFmpeg render | right after Find |
+| Clip | The 12-stage clip engine below | right after Find |
 | Review | Dashboard queue: watch, edit hook/caption/hashtags, approve/reject. Auto-approve toggle with a minimum score | whenever you want |
-| Post | Instagram Reels + Facebook Page Reels (Meta Graph API resumable upload), YouTube Shorts (Data API resumable upload) into your `POST_SLOTS` | checked every minute |
+| Post | Instagram Reels + Facebook Page Reels (Meta Graph API resumable upload), YouTube Shorts (Data API resumable upload) to every channel you switched on, each in its own `POST_SLOTS` | checked every minute |
 | Submit | Alert + "1-click submit" for campaign posts (copies link, opens campaign) | right after a campaign post goes live |
 | Analytics | IG media insights, FB video insights, YouTube Analytics (views, minutes watched, avg view duration, estimated revenue) | `ANALYTICS_CRON` (every 6 h) |
+
+### The clip engine (12 stages)
+
+| # | Stage | How |
+|---|---|---|
+| 1 | Footage analysis + scene detection | FFmpeg scene-change scores on a 6 fps proxy, per-second loudness |
+| 2 | Viral moment + reaction detection | Hype words in the Whisper transcript, sudden loudness jumps (screams, laughs) |
+| 3 | Highlight scoring + selection | Windows scored on peaks, opening hook, talk, hype, action (cuts/sec), reactions; top non-overlapping picks |
+| 4 | Smart clip extraction | Start on a word boundary or a clean scene cut, end on a sentence |
+| 5 | AI reframing | Facecam detected with OpenCV (or `FACECAM_BOX`) → facecam on top, gameplay below; else blurred full frame; black bars trimmed |
+| 6 | Hooks + captions | Claude ranks moments and writes hook, caption, hashtags (fallback without a key) |
+| 7 | Subtitle sync | Word-level timings, 3 words at a time, active word highlighted |
+| 8 | Motion + visual enhancement | Zoom punch-ins on reaction peaks, caption pop, hook fade-in |
+| 9 | Audio optimisation | High-pass, compression, -14 LUFS, click-free fades |
+| 10 | Quality control | Size, length, audio present, black screen, silence |
+| 11 | Copyright risk | Loud-but-nobody-talking music signal + sung-lyric hints + Claude's read (GTA radio gets claimed) |
+| 12 | Export | 1080x1920 H.264/AAC + thumbnail into Review |
+
+Clips that fail QC or score above `auto_approve_max_copyright_risk` (0.5) wait in Review even with auto-approve on.
+No n8n needed: the built-in scheduler runs the whole pipeline.
+
+### Several channels
+
+Setup lists every connected channel. YouTube: press **Add a channel** once per
+channel (Google's picker includes Brand Account channels). Facebook: one login
+brings in every Page you manage plus linked Instagram accounts. Switch on the
+ones SXM should post to; each gets every approved clip, and Analytics shows a
+card per channel.
 
 Commands:
 

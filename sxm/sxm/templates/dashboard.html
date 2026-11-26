@@ -4,7 +4,7 @@
   <h1>Analytics</h1>
   <div class="filters">
     {% for d, label in [(7,'7 days'),(30,'30 days'),(90,'90 days'),(0,'All time')] %}
-      <a href="/?days={{ d }}&channel={{ channel }}" class="{{ 'on' if days==d }}">{{ label }}</a>
+      <a href="/?days={{ d }}&channel={{ channel }}&ch={{ ch }}" class="{{ 'on' if days==d }}">{{ label }}</a>
     {% endfor %}
   </div>
 </div>
@@ -22,11 +22,11 @@
   <div class="card kpi"><div class="v">{{ c.posts }}</div><div class="l">Posts</div></div>
 </div>
 
-<h2>By channel</h2>
+<h2>By platform</h2>
 <div class="grid">
 {% for name, t in s.channels.items() %}
   <div class="card chan {{ name }}">
-    <div class="row" style="justify-content:space-between"><b>{{ {'instagram':'Instagram','facebook':'Facebook Page','youtube':'YouTube Shorts'}[name] }}</b>
+    <div class="row" style="justify-content:space-between"><b>{{ {'instagram':'Instagram','facebook':'Facebook','youtube':'YouTube Shorts'}[name] }}</b>
       <a href="/?days={{ days }}&channel={{ name }}" class="muted">posts →</a></div>
     <dl>
       <dt>Posts</dt><dd>{{ t.posts }}</dd>
@@ -42,19 +42,43 @@
 {% endfor %}
 </div>
 
+{% if s.by_channel %}
+<h2>Every channel</h2>
+<div class="grid">
+{% for t in s.by_channel %}
+  <div class="card chan {{ t.platform }} {{ '' if t.enabled else 'dim' }}">
+    <div class="row" style="justify-content:space-between;flex-wrap:nowrap">
+      <div class="row" style="gap:8px;flex-wrap:nowrap;min-width:0">
+        {% if t.avatar %}<img class="av sm" src="{{ t.avatar }}" alt="" loading="lazy" referrerpolicy="no-referrer">{% endif %}
+        <b class="ellipsis">{{ t.name }}</b>
+      </div>
+      <a href="/?days={{ days }}&ch={{ t.id }}" class="muted">posts →</a></div>
+    <dl>
+      <dt>Posts</dt><dd>{{ t.posts }}</dd>
+      <dt>Views</dt><dd>{{ t.views|num }}</dd>
+      <dt>Watch hours</dt><dd>{{ t.watch_hours|dec }}</dd>
+      <dt>Avg watch</dt><dd>{{ t.avg_view_s }}s</dd>
+      <dt>Revenue</dt><dd>{{ t.revenue_usd|money }}</dd>
+    </dl>
+    {% if not t.enabled %}<p class="muted small" style="margin:8px 0 0">Not posting here. Switch it on in Setup.</p>{% endif %}
+  </div>
+{% endfor %}
+</div>
+{% endif %}
+
 <div class="grid split" style="margin-top:16px">
   <div class="card"><b>Views per day</b><div class="chart"><canvas id="daily"></canvas></div></div>
   <div class="card"><b>Best time to post</b> <span class="muted">(avg views by hour posted)</span><div class="chart"><canvas id="hours"></canvas></div></div>
 </div>
 
-<h2>Every post {% if channel %}· {{ channel }} <a href="/?days={{ days }}">(show all)</a>{% endif %}</h2>
+<h2>Every post {% if channel or ch %}· {{ ch_name or channel }} <a href="/?days={{ days }}">(show all)</a>{% endif %}</h2>
 <div class="card" style="overflow-x:auto">
 <table>
   <tr><th>Posted</th><th>Channel</th><th>Clip</th><th>Views</th><th>Watch hrs</th><th>Avg watch</th><th>Likes</th><th>Revenue</th><th></th></tr>
   {% for r in rows %}
   <tr>
     <td>{{ r.posted_local }}<div class="muted">{{ r.posted_weekday }}</div></td>
-    <td><span class="tag {{ r.platform }}">{{ r.platform }}</span></td>
+    <td><span class="tag {{ r.platform }}">{{ r.platform }}</span>{% if r.channel_name %}<div class="muted small">{{ r.channel_name }}</div>{% endif %}</td>
     <td>{{ r.hook }}{% if r.campaign_id %} <span class="tag">campaign</span>{% endif %}</td>
     <td>{{ r.views|num }}</td><td>{{ r.watch_hours|dec }}</td><td>{{ '%.1f'|format(r.avg_view_s) }}s</td>
     <td>{{ r.likes|num }}</td><td>{{ r.revenue_usd|money }}</td>

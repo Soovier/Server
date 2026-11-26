@@ -8,3 +8,5 @@ python-dotenv>=1.0
 yt-dlp>=2025.1.1
 # Local, free speech-to-text for captions and moment detection
 faster-whisper>=1.0
+# Finds the streamer's facecam for the facecam-over-gameplay layout (optional)
+opencv-python-headless>=4.9,<5  # 5.x dropped the face detector this uses

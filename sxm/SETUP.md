@@ -44,8 +44,9 @@ Create the app:
 
 Connect:
 - [ ] Start SXM, open **Setup → Instagram → Connect**, log in with
-      Facebook, and tick your Page and your Instagram account when asked. Grant
-      every permission listed. Both Instagram and Facebook show "connected".
+      Facebook, and tick every Page and Instagram account you want SXM to see.
+      Grant every permission listed. Setup then lists all of them: switch on
+      the ones SXM should post to.
 
 Permissions requested: `pages_show_list, pages_read_engagement, pages_manage_posts,
 read_insights, business_management, instagram_basic, instagram_content_publish,
@@ -67,7 +68,9 @@ instagram_manage_insights`.
       GOOGLE_CLIENT_ID=...
       GOOGLE_CLIENT_SECRET=...
       ```
-- [ ] Setup page → **YouTube → Connect** → pick the channel you post Shorts on.
+- [ ] Setup page → **YouTube → Add a channel** → pick the channel you post Shorts on.
+      Have more than one channel (including Brand Account channels)? Press
+      **Add a channel** again and pick the next one. Switch each on or off in Setup.
 
 **Important, YouTube upload audit:** Google locks videos uploaded by new,
 unaudited API projects to **private**. To post publicly, submit the

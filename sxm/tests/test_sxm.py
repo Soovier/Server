@@ -22,6 +22,12 @@ def db(tmp_path, monkeypatch):
     return d
 
 
+def connect_all(db):
+    """One switched-on channel per platform."""
+    for pf, acct in (("instagram", "IGX"), ("facebook", "PGX"), ("youtube", "UCX")):
+        db.save_channel(pf, acct, enabled=True, name=f"my {pf}", access_token="T")
+
+
 def make_clip(db, campaign_id=None, streamer="xqc", score=5.0, video="x.mp4"):
     sid = db.insert("sources", {"platform": "manual", "external_id": f"e{utcnow()}{score}{streamer}{campaign_id}",
                                 "url": "http://x", "streamer": streamer, "campaign_id": campaign_id,
@@ -42,6 +48,7 @@ def test_next_slots_are_future_and_unique(db):
 
 
 def test_approve_schedules_each_platform(db):
+    connect_all(db)
     cid = make_clip(db)
     ids = review.approve(db, cid)
     assert len(ids) == 3
@@ -55,6 +62,7 @@ def test_approve_schedules_each_platform(db):
 
 
 def test_auto_approve_respects_toggle_and_permission(db):
+    connect_all(db)
     camp = campaigns.add_campaign(db, name="C", url="https://contentrewards.com/c/x")
     ok = make_clip(db, campaign_id=camp)
     no_perm = make_clip(db, streamer="random")
@@ -73,6 +81,7 @@ def test_auto_approve_respects_toggle_and_permission(db):
 
 
 def test_reject_cancels_posts(db):
+    connect_all(db)
     cid = make_clip(db)
     review.approve(db, cid)
     review.reject(db, cid)
@@ -82,15 +91,16 @@ def test_reject_cancels_posts(db):
 # ---------------- publishing ----------------
 
 def test_publish_due_posts_and_queues_submission(db, monkeypatch, tmp_path):
+    connect_all(db)
     camp = campaigns.add_campaign(db, name="C", url="https://contentrewards.com/c/x", platforms="instagram")
     cid = make_clip(db, campaign_id=camp)
     review.approve(db, cid)
     db.run("UPDATE posts SET scheduled_at=?", ((datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat(),))
     from sxm import publishers
-    monkeypatch.setitem(publishers.PUBLISHERS, "instagram", lambda d, c: {"external_id": "ig1", "permalink": "https://ig/p/1"})
-    monkeypatch.setitem(publishers.PUBLISHERS, "facebook", lambda d, c: {"external_id": "fb1", "permalink": "https://fb/1"})
+    monkeypatch.setitem(publishers.PUBLISHERS, "instagram", lambda d, c, ch=None: {"external_id": "ig1", "permalink": "https://ig/p/1"})
+    monkeypatch.setitem(publishers.PUBLISHERS, "facebook", lambda d, c, ch=None: {"external_id": "fb1", "permalink": "https://fb/1"})
 
-    def boom(d, c):
+    def boom(d, c, ch=None):
         raise RuntimeError("quota")
     monkeypatch.setitem(publishers.PUBLISHERS, "youtube", boom)
     assert publish_due(db) == "published 2, failed 1"
@@ -192,7 +202,7 @@ def test_youtube_upload_and_metrics(db, tmp_path):
 def test_youtube_token_refresh(db):
     db.save_account("youtube", account_id="UC1", access_token="old", refresh_token="RT", expires_at="2000-01-01T00:00:00+00:00")
     http = mock_client(lambda req: httpx.Response(200, json={"access_token": "new", "expires_in": 3600}))
-    assert youtube.ensure_fresh_token(db, http) == "new"
+    assert youtube.ensure_fresh_token(db, http=http) == "new"
     assert db.get_account("youtube")["access_token"] == "new"
 
 
@@ -274,6 +284,7 @@ def test_clip_source_end_to_end(db, tmp_path, monkeypatch):
 def test_web_pages_render(db):
     from fastapi.testclient import TestClient
     from sxm.web import app
+    connect_all(db)
     camp = campaigns.add_campaign(db, name="Camp", url="https://contentrewards.com/c/x")
     make_clip(db, campaign_id=camp)
     c = TestClient(app)
@@ -291,3 +302,141 @@ def test_web_pages_render(db):
     assert r.status_code == 200
     assert db.one("SELECT platforms FROM campaigns WHERE name='X'")["platforms"] == "youtube"
     assert c.get("/media/clips/../sxm.db").status_code == 404
+
+
+def test_multiple_channels_each_get_a_post(db):
+    connect_all(db)
+    second = db.save_channel("youtube", "UC2", enabled=True, name="second channel", access_token="T2")
+    off = db.save_channel("youtube", "UC3", name="not chosen", access_token="T3")  # connected but switched off
+    cid = make_clip(db)
+    review.approve(db, cid)
+    yt = db.q("SELECT channel_id FROM posts WHERE platform='youtube'")
+    assert {r["channel_id"] for r in yt} == {db.one("SELECT id FROM channels WHERE account_id='UCX'")["id"], second}
+    assert off not in {r["channel_id"] for r in yt}
+
+
+def test_approved_clip_waits_until_a_channel_is_on(db):
+    cid = make_clip(db)
+    assert review.approve(db, cid) == []
+    assert db.one("SELECT status FROM clips WHERE id=?", (cid,))["status"] == "approved"
+    db.save_channel("youtube", "UC9", enabled=True, name="yt", access_token="T")
+    review.schedule_waiting(db)
+    assert db.one("SELECT status FROM clips WHERE id=?", (cid,))["status"] == "scheduled"
+
+
+def test_google_login_adds_channel(db, monkeypatch):
+    monkeypatch.setattr(settings, "google_client_id", "cid")
+    monkeypatch.setattr(settings, "google_client_secret", "sec")
+
+    def handler(req):
+        if req.url.host == "oauth2.googleapis.com":
+            return httpx.Response(200, json={"access_token": "A", "refresh_token": "R", "expires_in": 3600})
+        return httpx.Response(200, json={"items": [{"id": "UCbrand", "snippet": {"title": "Brand Ch", "customUrl": "@brand"},
+                                                    "statistics": {"subscriberCount": "12"}}]})
+    youtube.finish_login(db, "code", http=mock_client(handler))
+    youtube.finish_login(db, "code", http=mock_client(handler))  # reconnect does not duplicate
+    chans = db.channels("youtube")
+    assert len(chans) == 1 and chans[0]["name"] == "Brand Ch" and chans[0]["enabled"] == 1
+    assert chans[0]["extra"]["subscribers"] == 12
+
+
+def test_meta_login_lists_every_page_for_choosing(db, monkeypatch):
+    monkeypatch.setattr(settings, "meta_app_id", "a")
+    monkeypatch.setattr(settings, "meta_app_secret", "b")
+
+    def handler(req):
+        if req.url.path.endswith("oauth/access_token"):
+            return httpx.Response(200, json={"access_token": "U"})
+        return httpx.Response(200, json={"data": [
+            {"id": "P1", "name": "Page One", "access_token": "PT1",
+             "instagram_business_account": {"id": "IG1", "username": "one"}},
+            {"id": "P2", "name": "Page Two", "access_token": "PT2"}]})
+    res = meta.finish_login(db, "code", http=mock_client(handler))
+    assert res["needs_choice"] and len(db.channels("facebook")) == 2 and len(db.channels("instagram")) == 1
+    assert not db.channels(enabled_only=True)  # you pick which ones on Setup
+
+
+def test_old_database_migrates_to_channels(tmp_path):
+    import sqlite3
+    path = tmp_path / "old.db"
+    con = sqlite3.connect(path)
+    con.executescript("""
+        CREATE TABLE accounts (platform TEXT PRIMARY KEY, account_id TEXT, name TEXT, access_token TEXT,
+            refresh_token TEXT, expires_at TEXT, extra TEXT DEFAULT '{}', connected_at TEXT);
+        INSERT INTO accounts VALUES ('youtube','UCold','Old Ch','AT','RT',NULL,'{}','2026-01-01');
+        CREATE TABLE posts (id INTEGER PRIMARY KEY AUTOINCREMENT, clip_id INTEGER NOT NULL, platform TEXT NOT NULL,
+            scheduled_at TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'scheduled', external_id TEXT, permalink TEXT,
+            posted_at TEXT, error TEXT, attempts INTEGER DEFAULT 0, UNIQUE(clip_id, platform));
+        INSERT INTO posts(clip_id, platform, scheduled_at, status) VALUES (1,'youtube','2026-01-01','posted');
+    """)
+    con.commit()
+    con.close()
+    d = DB(path)
+    ch = d.channels("youtube")
+    assert ch and ch[0]["name"] == "Old Ch" and ch[0]["enabled"] == 1
+    assert d.one("SELECT channel_id FROM posts")["channel_id"] == ch[0]["id"]
+    fk = d.q("PRAGMA foreign_key_list(metrics)")
+    assert fk[0]["table"] == "posts"
+
+
+# ---------------- clip engine stages ----------------
+
+def test_scene_cuts_and_action_scoring(tmp_path):
+    from sxm import analysis
+    energy = [1.0] * 200
+    calm = clipper.score_windows(energy, [], 200, 30)
+    busy = clipper.score_windows(energy, [], 200, 30, cuts=[float(t) for t in range(100, 130)])
+    best = max(busy, key=lambda w: w[2])
+    assert 70 <= best[0] <= 100 and best[2] > max(c[2] for c in calm)
+    assert analysis.snap_to_cut(50.0, [10.0, 49.2, 60.0]) == 49.2
+    assert analysis.snap_to_cut(50.0, [30.0]) == 50.0
+    z = [0.0] * 20
+    z[10] = 3.0
+    assert analysis.reaction_bursts(z) == [10]
+
+
+def test_copyright_risk_signal():
+    from sxm import analysis
+    z = [1.0] * 40  # loud the whole time
+    talk = [Word(float(i), i + 0.9, "word") for i in range(0, 40)]
+    assert analysis.music_ratio(z, talk, 0, 40) == 0.0
+    assert analysis.music_ratio(z, [], 0, 40) == 1.0          # loud and nobody talking -> music
+    assert analysis.copyright_risk(1.0, "") == 1.0
+    assert analysis.copyright_risk(0.1, "just talking") == 0.0
+    assert analysis.copyright_risk(0.1, "", ai_risk=0.9) == 0.45
+
+
+def test_facecam_box_parsing():
+    from sxm import analysis
+    b = analysis.parse_box("0.72,0.04,0.26,0.26")
+    assert b and b.ffmpeg_crop().startswith("crop=iw*0.2600:ih*0.2600")
+    assert analysis.parse_box("") is None and analysis.parse_box("2,0,1,1") is None
+
+
+@pytest.mark.skipif(not __import__("shutil").which("ffmpeg"), reason="ffmpeg missing")
+def test_stack_layout_zoom_and_qc(tmp_path):
+    from sxm import analysis, qc
+    src = tmp_path / "src.mp4"
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc=size=1280x720:rate=30:duration=8",
+                    "-f", "lavfi", "-i", "sine=frequency=440:duration=8", "-shortest", "-c:v", "libx264",
+                    "-preset", "ultrafast", "-c:a", "aac", str(src)], check=True)
+    out = render_clip(src, tmp_path / "stack.mp4", 1, 7, [Word(0.2, 0.8, "go")], hook="hook", mode="stack",
+                      facecam=analysis.Box(0.7, 0.05, 0.25, 0.25), punches=[2.0])
+    res = qc.check_clip(out, 6)
+    assert res.status == "pass", res.text
+    risky = qc.check_clip(out, 6, copyright_risk=0.9)
+    assert risky.status == "warn" and "copyright" in risky.text
+    assert qc.check_clip(tmp_path / "missing.mp4", 6).status == "fail"
+
+
+def test_auto_approve_holds_failed_qc_and_risky_clips(db):
+    connect_all(db)
+    camp = campaigns.add_campaign(db, name="C", url="https://x")
+    good = make_clip(db, campaign_id=camp)
+    bad_qc = make_clip(db, campaign_id=camp, streamer="q")
+    risky = make_clip(db, campaign_id=camp, streamer="r")
+    db.update("clips", bad_qc, qc_status="fail", qc_notes="no audio")
+    db.update("clips", risky, copyright_risk=0.8)
+    review.auto_approve_pending(db)
+    st = {r["id"]: r["status"] for r in db.q("SELECT id,status FROM clips")}
+    assert st[good] == "scheduled" and st[bad_qc] == "pending_review" and st[risky] == "pending_review"

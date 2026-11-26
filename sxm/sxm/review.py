@@ -31,13 +31,15 @@ def has_permission(db: DB, clip: dict) -> bool:
     return bool(src and (src["streamer"] or "").lower() in permitted_streamers(db))
 
 
-def next_slots(db: DB, platform: str, count: int, now: datetime | None = None) -> list[datetime]:
-    """Next free posting slots for a platform, in UTC."""
+def next_slots(db: DB, platform: str, count: int, now: datetime | None = None,
+               channel_id: int | None = None) -> list[datetime]:
+    """Next free posting slots for a channel (or a whole platform), in UTC."""
     tz = ZoneInfo(settings.timezone)
     now = (now or datetime.now(timezone.utc)).astimezone(tz)
+    where, arg = ("channel_id=?", channel_id) if channel_id else ("platform=?", platform)
     taken = {r["scheduled_at"] for r in db.q(
-        "SELECT scheduled_at FROM posts WHERE platform=? AND status IN ('scheduled','publishing','posted')",
-        (platform,))}
+        f"SELECT scheduled_at FROM posts WHERE {where} AND status IN ('scheduled','publishing','posted')",
+        (arg,))}
     out: list[datetime] = []
     day = now.date()
     while len(out) < count:
@@ -57,16 +59,35 @@ def next_slots(db: DB, platform: str, count: int, now: datetime | None = None) -
     return out
 
 
+def target_channels(db: DB) -> list[dict]:
+    """Every channel SXM posts to: switched on, on a platform you post to."""
+    plats = enabled_platforms(db)
+    return [c for c in db.channels(enabled_only=True) if c["platform"] in plats and c.get("access_token")]
+
+
 def schedule_clip(db: DB, clip_id: int, when: dict[str, datetime] | None = None) -> list[int]:
+    """One post per channel you've switched on. If none are connected yet, the
+    clip stays approved and is scheduled once you connect one."""
     ids = []
-    for p in enabled_platforms(db):
-        if db.one("SELECT id FROM posts WHERE clip_id=? AND platform=?", (clip_id, p)):
+    for ch in target_channels(db):
+        if db.one("SELECT id FROM posts WHERE clip_id=? AND channel_id=?", (clip_id, ch["id"])):
             continue
-        at = (when or {}).get(p) or next_slots(db, p, 1)[0]
-        ids.append(db.insert("posts", {"clip_id": clip_id, "platform": p,
+        at = (when or {}).get(ch["platform"]) or next_slots(db, ch["platform"], 1, channel_id=ch["id"])[0]
+        ids.append(db.insert("posts", {"clip_id": clip_id, "platform": ch["platform"], "channel_id": ch["id"],
                                        "scheduled_at": at.astimezone(timezone.utc).replace(microsecond=0).isoformat()}))
-    db.update("clips", clip_id, status="scheduled")
+    if db.one("SELECT id FROM posts WHERE clip_id=? AND status!='cancelled' LIMIT 1", (clip_id,)):
+        db.update("clips", clip_id, status="scheduled")
     return ids
+
+
+def schedule_waiting(db: DB) -> str:
+    """Approved clips that had nowhere to go: schedule them now if a channel is on."""
+    if not target_channels(db):
+        return "no channels switched on"
+    n = 0
+    for c in db.q("SELECT id FROM clips WHERE status='approved'"):
+        n += bool(schedule_clip(db, c["id"]))
+    return f"scheduled {n} waiting clips"
 
 
 def approve(db: DB, clip_id: int, note: str = "") -> list[int]:
@@ -90,8 +111,11 @@ def auto_approve_pending(db: DB) -> str:
         return "auto-approve off"
     min_score = float(db.get_setting("auto_approve_min_score", "0") or 0)
     n = skipped = 0
+    max_risk = float(db.get_setting("auto_approve_max_copyright_risk", "0.5") or 0.5)
     for c in db.q("SELECT * FROM clips WHERE status='pending_review' ORDER BY score DESC"):
-        if (c["score"] or 0) < min_score or not has_permission(db, c):
+        # Clips that failed quality control or look risky for copyright wait for you.
+        if (c["score"] or 0) < min_score or not has_permission(db, c) or c.get("qc_status") == "fail" \
+                or (c.get("copyright_risk") or 0) > max_risk:
             skipped += 1
             continue
         approve(db, c["id"], note="auto-approved")

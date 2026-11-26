@@ -1,10 +1,18 @@
 """Turn a long source video into ranked short clips.
 
-Pipeline per source:
-  download (yt-dlp) -> audio energy per second (FFmpeg) -> transcript with
-  word timings (faster-whisper, local + free) -> score windows -> optional
-  Claude pass that picks the best moments and writes hooks/captions ->
-  render each clip (editor.py) -> clip lands in the review queue.
+The 12 stages, in order:
+   1. Footage analysis + scene detection   analysis.scene_cuts, audio_energy
+   2. Viral moment + reaction detection    transcript hype words, analysis.reaction_bursts
+   3. Highlight scoring + selection        score_windows, pick_moments
+   4. Smart clip extraction                snap_to_speech, analysis.snap_to_cut
+   5. AI reframing                         analysis.detect_facecam / black_bars -> stack | blur | crop
+   6. Hooks + captions                     ai_refine (Claude), default_copy
+   7. Subtitle sync                        word-level timings from faster-whisper -> editor.build_ass
+   8. Motion + visual enhancement          zoom punch-ins on reaction peaks, caption pop
+   9. Audio optimisation                   high-pass, compression, -14 LUFS loudness
+  10. Quality control                      qc.check_clip
+  11. Copyright risk detection             analysis.music_ratio + Claude -> copyright_risk
+  12. Export                               1080x1920 H.264/AAC, thumbnail, into the review queue
 """
 from __future__ import annotations
 
@@ -20,6 +28,7 @@ from typing import Any
 
 import httpx
 
+from . import analysis, qc
 from .config import settings
 from .db import DB, utcnow
 from .editor import Word, ffmpeg_bin, probe_duration, render_clip, thumbnail
@@ -39,6 +48,7 @@ class Moment:
     caption: str = ""
     hashtags: str = ""
     words: list[Word] = field(default_factory=list)
+    ai_risk: float | None = None
 
     @property
     def text(self) -> str:
@@ -110,10 +120,12 @@ def _zscores(xs: list[float]) -> list[float]:
 
 
 def score_windows(energy: list[float], words: list[Word], duration: float, length: int,
-                  step: int = 5) -> list[tuple[float, float, float]]:
+                  step: int = 5, cuts: list[float] | None = None) -> list[tuple[float, float, float]]:
     """Score every window of `length` seconds. Returns (start, end, score)."""
     z = _zscores(energy)
     n = int(duration) if duration else len(z)
+    action = analysis.cut_density(cuts or [], n)
+    bursts = set(analysis.reaction_bursts(z))
     per_sec_words = [0] * (n + 1)
     hype = [0.0] * (n + 1)
     for w in words:
@@ -136,7 +148,11 @@ def score_windows(energy: list[float], words: list[Word], duration: float, lengt
         opening = sum(loud[:5]) / 5 if len(loud) >= 5 else 0.0
         talk = sum(per_sec_words[s:e]) / length if words else 0.0
         hy = sum(hype[s:e])
-        score = 1.5 * peak + 1.0 * avg + 0.8 * opening + 0.6 * min(talk, 4) + 0.7 * hy
+        act = sum(action[s:e]) / length
+        react = sum(1 for b in bursts if s <= b < e)
+        early_react = sum(1 for b in bursts if s <= b < s + 6)
+        score = (1.5 * peak + 1.0 * avg + 0.8 * opening + 0.6 * min(talk, 4) + 0.7 * hy
+                 + 1.2 * min(act, 1.5) + 0.6 * min(react, 4) + 0.6 * min(early_react, 2))
         out.append((float(s), float(e), score))
     return out
 
@@ -185,7 +201,9 @@ def ai_refine(moments: list[Moment], words: list[Word], title: str, streamer: st
         + (f"Campaign rules to follow exactly:\n{campaign_rules}\n" if campaign_rules else "")
         + "For each candidate, return JSON objects with: i, keep (bool: is this a strong standalone clip?), "
         "score (0-10), hook (max 7 words, on-screen, punchy, no hashtags), caption (one line, under 120 chars, "
-        "credits the streamer), hashtags (3-5, space separated, include #shorts).\n"
+        "credits the streamer), hashtags (3-5, space separated, include #shorts), "
+        "copyright_risk (0-1: how likely licensed music, a song being sung, in-game radio, or a film/TV show is "
+        "audible from the transcript and context; 0 if it's just people talking and game sounds).\n"
         "Reply with only a JSON array.\n\n" + json.dumps(cands)
     )
     try:
@@ -209,6 +227,10 @@ def ai_refine(moments: list[Moment], words: list[Word], title: str, streamer: st
         m.hook = str(d.get("hook", ""))[:60]
         m.caption = str(d.get("caption", ""))[:300]
         m.hashtags = str(d.get("hashtags", ""))[:200]
+        try:
+            m.ai_risk = max(0.0, min(1.0, float(d.get("copyright_risk"))))
+        except (TypeError, ValueError):
+            pass
         out.append(m)
     return out or moments
 
@@ -240,42 +262,63 @@ def clip_source(db: DB, source_id: int, renderer=render_clip) -> list[int]:
             db.update("sources", source_id, local_path=str(path), status="downloaded")
         duration = probe_duration(path) or float(src.get("duration_s") or 0)
         words = transcribe(path)
+        energy = audio_energy(path)
+        energy_z = _zscores(energy)
         short_source = duration <= settings.clip_max_seconds + 5
+        cuts = [] if short_source else analysis.scene_cuts(path)
         if short_source:
             moments = [Moment(0.0, duration, 1.0)]
             moments = [snap_to_speech(moments[0], words) if words else moments[0]]
             if not words:
                 moments[0].words = []
         else:
-            energy = audio_energy(path)
             length = max(settings.clip_min_seconds, min(45, settings.clip_max_seconds))
-            windows = score_windows(energy, words, duration, length)
+            windows = score_windows(energy, words, duration, length, cuts=cuts)
             moments = pick_moments(windows, settings.clips_per_source * 2)
             moments = [snap_to_speech(m, words) for m in moments]
-            for m in moments:  # keep inside platform limits
-                m.end = min(m.end, m.start + settings.clip_max_seconds)
+            for m in moments:
+                cut_start = analysis.snap_to_cut(m.start, cuts)
+                if cut_start != m.start:  # open on a clean cut; re-time captions
+                    m.start = cut_start
+                    m.words = [Word(w.start - m.start, w.end - m.start, w.text) for w in words
+                               if m.start <= w.start < m.end]
+                m.end = min(m.end, m.start + settings.clip_max_seconds)  # keep inside platform limits
                 m.words = [w for w in m.words if w.start < m.end - m.start]
         moments = ai_refine(moments, words, src["title"] or "", src["streamer"] or "",
                             camp["rules"] if camp else "")
         moments = sorted(moments, key=lambda m: m.score, reverse=True)[: settings.clips_per_source]
+        bursts = analysis.reaction_bursts(energy_z)
+        fixed_cam = analysis.parse_box(settings.facecam_box)
 
         ids = []
         for m in moments:
             default_copy(m, src["streamer"] or "", src["title"] or "")
             if camp and camp.get("required_tags"):
                 m.hashtags = (m.hashtags + " " + camp["required_tags"]).strip()
+            # Framing: facecam on top when there is one, else blur (or what you set).
+            mode, cam = settings.reframe_mode, None
+            if mode in ("auto", "stack"):
+                cam = fixed_cam or analysis.detect_facecam(path, m.start, m.end)
+                mode = "stack" if cam else "blur"
+            bars = analysis.black_bars(path, m.start + 1)
+            punches = [b - m.start for b in bursts if m.start + 0.8 <= b <= m.end - 1.0] \
+                if settings.zoom_punches else []
+            risk = analysis.copyright_risk(analysis.music_ratio(energy_z, words, m.start, m.end), m.text, m.ai_risk)
             clip_id = db.insert("clips", {
                 "source_id": source_id, "campaign_id": src["campaign_id"], "start_s": m.start, "end_s": m.end,
                 "score": round(m.score, 2), "hook": m.hook, "caption": m.caption, "hashtags": m.hashtags,
-                "transcript": m.text, "status": "rendering", "created_at": utcnow(),
+                "transcript": m.text, "status": "rendering", "created_at": utcnow(), "layout": mode,
+                "copyright_risk": risk,
             })
             out = settings.media_dir / "clips" / f"clip_{clip_id}.mp4"
             try:
-                renderer(path, out, m.start, m.end, m.words, m.hook, mode=settings.reframe_mode,
-                         brand=settings.brand_handle)
+                renderer(path, out, m.start, m.end, m.words, m.hook, mode=mode, brand=settings.brand_handle,
+                         facecam=cam, bars=bars, punches=punches[:6])
                 thumb = thumbnail(out, out.with_suffix(".jpg")) if out.exists() else None
+                check = qc.check_clip(out, m.end - m.start, max_s=settings.clip_max_seconds + 1,
+                                      copyright_risk=risk)
                 db.update("clips", clip_id, video_path=str(out), thumb_path=str(thumb) if thumb else None,
-                          status="pending_review")
+                          status="pending_review", qc_status=check.status, qc_notes=check.text or None)
                 ids.append(clip_id)
             except Exception as e:
                 db.update("clips", clip_id, status="failed", review_note=str(e)[:500])

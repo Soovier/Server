@@ -45,7 +45,11 @@ class Settings:
     clip_min_seconds: int = field(default_factory=lambda: int(_env("CLIP_MIN_SECONDS", "20")))
     clip_max_seconds: int = field(default_factory=lambda: int(_env("CLIP_MAX_SECONDS", "59")))
     brand_handle: str = field(default_factory=lambda: _env("BRAND_HANDLE"))
-    reframe_mode: str = field(default_factory=lambda: _env("REFRAME_MODE", "blur"))
+    # auto = facecam on top + gameplay below when a facecam is found, else blur
+    reframe_mode: str = field(default_factory=lambda: _env("REFRAME_MODE", "auto"))
+    # Facecam position as fractions of the frame "x,y,w,h" (e.g. 0.72,0.04,0.26,0.26). Blank = detect.
+    facecam_box: str = field(default_factory=lambda: _env("FACECAM_BOX"))
+    zoom_punches: bool = field(default_factory=lambda: _env("ZOOM_PUNCHES", "1") == "1")
     anthropic_api_key: str = field(default_factory=lambda: _env("ANTHROPIC_API_KEY"))
     anthropic_model: str = field(default_factory=lambda: _env("ANTHROPIC_MODEL", "claude-sonnet-5-5"))
 

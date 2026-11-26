@@ -52,7 +52,8 @@ def login_url(state: str) -> str:
 
 
 def finish_login(db: DB, code: str, http: httpx.Client | None = None) -> dict:
-    """Exchange the code, get a long-lived token, pick the Page and its IG account."""
+    """Exchange the code, then save every Facebook Page and linked Instagram
+    account the login can reach. You pick which ones SXM posts to on Setup."""
     http = http or httpx.Client(timeout=30)
     short = _check(http.get(graph("oauth/access_token"), params={
         "client_id": settings.meta_app_id, "client_secret": settings.meta_app_secret,
@@ -62,24 +63,44 @@ def finish_login(db: DB, code: str, http: httpx.Client | None = None) -> dict:
         "grant_type": "fb_exchange_token", "client_id": settings.meta_app_id,
         "client_secret": settings.meta_app_secret, "fb_exchange_token": short,
     }))["access_token"]
-    pages = _check(http.get(graph("me/accounts"), params={
-        "access_token": long_user, "fields": "id,name,access_token,instagram_business_account{id,username}",
-    })).get("data", [])
+    pages: list[dict] = []
+    url, params = graph("me/accounts"), {
+        "access_token": long_user, "limit": 100,
+        "fields": "id,name,access_token,picture{url},instagram_business_account{id,username,profile_picture_url}",
+    }
+    while url:  # follow paging so every Page shows up
+        data = _check(http.get(url, params=params))
+        pages += data.get("data", [])
+        url, params = (data.get("paging") or {}).get("next"), None
     if not pages:
-        raise MetaError("No Facebook Pages found. Make sure you picked your Page during login.")
-    wanted = db.get_setting("meta_page_id")
-    page = next((p for p in pages if p["id"] == wanted), pages[0])
-    # A Page token derived from a long-lived user token does not expire.
-    db.save_account("facebook", account_id=page["id"], name=page["name"], access_token=page["access_token"],
-                    extra={"all_pages": [{"id": p["id"], "name": p["name"]} for p in pages]})
-    ig = page.get("instagram_business_account")
-    if ig:
-        db.save_account("instagram", account_id=ig["id"], name=ig.get("username", ""),
-                        access_token=page["access_token"], extra={"page_id": page["id"]})
-    return {"page": page["name"], "instagram": (ig or {}).get("username")}
+        raise MetaError("No Facebook Pages found. Make sure you ticked your Pages during login.")
+    first_time = not db.channels("facebook") and not db.channels("instagram")
+    found = {"facebook": [], "instagram": []}
+    for pg in pages:
+        # A Page token derived from a long-lived user token does not expire.
+        db.save_channel("facebook", pg["id"], enabled=True if first_time and len(pages) == 1 else None,
+                        name=pg["name"], avatar=((pg.get("picture") or {}).get("data") or {}).get("url", ""),
+                        access_token=pg["access_token"])
+        found["facebook"].append(pg["name"])
+        ig = pg.get("instagram_business_account")
+        if ig:
+            db.save_channel("instagram", ig["id"], enabled=True if first_time and len(pages) == 1 else None,
+                            name=ig.get("username", ""), handle="@" + ig.get("username", ""),
+                            avatar=ig.get("profile_picture_url", ""), access_token=pg["access_token"],
+                            extra={"page_id": pg["id"], "page_name": pg["name"]})
+            found["instagram"].append(ig.get("username", ""))
+    return {"pages": found["facebook"], "instagram": found["instagram"],
+            "page": found["facebook"][0], "needs_choice": len(pages) > 1 or not first_time}
 
 
-# ---------------- Upload helpers ----------------
+def _meta_channel(db: DB, platform: str, channel: dict | int | None) -> dict:
+    if isinstance(channel, int):
+        channel = db.get_channel(channel)
+    channel = channel or db.get_account(platform)
+    if not channel or not channel.get("access_token"):
+        raise MetaError(f"{'Instagram' if platform == 'instagram' else 'Facebook Page'} not connected")
+    return channel
+
 
 def _rupload(http: httpx.Client, url: str, token: str, path: Path) -> dict:
     data = path.read_bytes()
@@ -96,12 +117,10 @@ def _caption(clip: dict) -> str:
 
 # ---------------- Instagram ----------------
 
-def publish_instagram(db: DB, clip: dict, http: httpx.Client | None = None, poll_s: float = 5,
-                      max_wait_s: float = 600) -> dict:
+def publish_instagram(db: DB, clip: dict, channel: dict | None = None, http: httpx.Client | None = None,
+                      poll_s: float = 5, max_wait_s: float = 600) -> dict:
     http = http or httpx.Client(timeout=60)
-    acc = db.get_account("instagram")
-    if not acc:
-        raise MetaError("Instagram not connected")
+    acc = _meta_channel(db, "instagram", channel)
     token, ig = acc["access_token"], acc["account_id"]
     container = _check(http.post(graph(f"{ig}/media"), data={
         "media_type": "REELS", "upload_type": "resumable", "caption": _caption(clip),
@@ -127,11 +146,9 @@ def publish_instagram(db: DB, clip: dict, http: httpx.Client | None = None, poll
 
 # ---------------- Facebook Page Reels ----------------
 
-def publish_facebook(db: DB, clip: dict, http: httpx.Client | None = None) -> dict:
+def publish_facebook(db: DB, clip: dict, channel: dict | None = None, http: httpx.Client | None = None) -> dict:
     http = http or httpx.Client(timeout=60)
-    acc = db.get_account("facebook")
-    if not acc:
-        raise MetaError("Facebook Page not connected")
+    acc = _meta_channel(db, "facebook", channel)
     token, page = acc["access_token"], acc["account_id"]
     start = _check(http.post(graph(f"{page}/video_reels"), data={"upload_phase": "start", "access_token": token}))
     video_id = start["video_id"]
@@ -168,9 +185,9 @@ def _insights(http: httpx.Client, path: str, metrics: list[str], token: str) -> 
         return out
 
 
-def instagram_metrics(db: DB, media_id: str, http: httpx.Client | None = None) -> dict:
+def instagram_metrics(db: DB, media_id: str, http: httpx.Client | None = None, channel: dict | None = None) -> dict:
     http = http or httpx.Client(timeout=30)
-    token = db.get_account("instagram")["access_token"]
+    token = _meta_channel(db, "instagram", channel)["access_token"]
     m = _insights(http, f"{media_id}/insights", [
         "views", "reach", "likes", "comments", "shares", "saved",
         "ig_reels_avg_watch_time", "ig_reels_video_view_total_time",
@@ -184,9 +201,9 @@ def instagram_metrics(db: DB, media_id: str, http: httpx.Client | None = None) -
     }
 
 
-def facebook_metrics(db: DB, video_id: str, http: httpx.Client | None = None) -> dict:
+def facebook_metrics(db: DB, video_id: str, http: httpx.Client | None = None, channel: dict | None = None) -> dict:
     http = http or httpx.Client(timeout=30)
-    token = db.get_account("facebook")["access_token"]
+    token = _meta_channel(db, "facebook", channel)["access_token"]
     m = _insights(http, f"{video_id}/video_insights", [
         "blue_reels_play_count", "fb_reels_total_plays", "post_video_avg_time_watched", "post_video_view_time",
         "post_video_social_actions",

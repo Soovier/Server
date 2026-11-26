@@ -23,31 +23,29 @@ def _save(db: DB, post_id: int, m: dict) -> None:
 def sync_metrics(db: DB) -> str:
     posted = db.q("SELECT * FROM posts WHERE status='posted' AND external_id IS NOT NULL")
     done, errors = 0, []
-    by_platform = defaultdict(list)
+    groups: dict[tuple[str, int | None], list[dict]] = defaultdict(list)
     for p in posted:
-        by_platform[p["platform"]].append(p)
-    for p in by_platform["instagram"]:
-        try:
-            _save(db, p["id"], instagram_metrics(db, p["external_id"]))
-            done += 1
-        except Exception as e:
-            errors.append(f"ig {p['id']}: {e}")
-    for p in by_platform["facebook"]:
-        try:
-            _save(db, p["id"], facebook_metrics(db, p["external_id"]))
-            done += 1
-        except Exception as e:
-            errors.append(f"fb {p['id']}: {e}")
-    yt = by_platform["youtube"]
-    if yt:
-        try:
-            first = min(p["posted_at"] or utcnow() for p in yt)[:10]
-            res = youtube_metrics(db, [p["external_id"] for p in yt], date.fromisoformat(first))
-            for p in yt:
-                _save(db, p["id"], res.get(p["external_id"], {}))
-                done += 1
-        except Exception as e:
-            errors.append(f"yt: {e}")
+        groups[(p["platform"], p.get("channel_id"))].append(p)
+    for (platform, ch_id), posts in groups.items():
+        channel = db.get_channel(ch_id) if ch_id else None
+        if platform in ("instagram", "facebook"):
+            fn = instagram_metrics if platform == "instagram" else facebook_metrics
+            for p in posts:
+                try:
+                    _save(db, p["id"], fn(db, p["external_id"], channel=channel))
+                    done += 1
+                except Exception as e:
+                    errors.append(f"{platform[:2]} {p['id']}: {e}")
+        elif platform == "youtube":
+            try:
+                first = min(p["posted_at"] or utcnow() for p in posts)[:10]
+                res = youtube_metrics(db, [p["external_id"] for p in posts], date.fromisoformat(first),
+                                      channel=channel)
+                for p in posts:
+                    _save(db, p["id"], res.get(p["external_id"], {}))
+                    done += 1
+            except Exception as e:
+                errors.append(f"yt {(channel or {}).get('name', '')}: {e}")
     from . import campaign_site
     if campaign_site.enabled():
         try:
@@ -60,21 +58,25 @@ def sync_metrics(db: DB) -> str:
 # ---------------- read side for the dashboard ----------------
 
 LATEST = """
-SELECT p.*, c.hook, c.caption, c.thumb_path, c.campaign_id,
+SELECT p.*, c.hook, c.caption, c.thumb_path, c.campaign_id, ch.name channel_name,
        COALESCE(m.views,0) views, COALESCE(m.likes,0) likes, COALESCE(m.comments,0) comments,
        COALESCE(m.shares,0) shares, COALESCE(m.watch_time_s,0) watch_time_s,
        COALESCE(m.avg_view_s,0) avg_view_s, COALESCE(m.revenue_usd,0) revenue_usd
-FROM posts p JOIN clips c ON c.id=p.clip_id
+FROM posts p JOIN clips c ON c.id=p.clip_id LEFT JOIN channels ch ON ch.id=p.channel_id
 LEFT JOIN metrics m ON m.id=(SELECT id FROM metrics WHERE post_id=p.id ORDER BY id DESC LIMIT 1)
 WHERE p.status='posted'
 """
 
 
-def post_rows(db: DB, platform: str | None = None, days: int | None = None) -> list[dict]:
+def post_rows(db: DB, platform: str | None = None, days: int | None = None,
+              channel_id: int | None = None) -> list[dict]:
     sql, params = LATEST, []
     if platform:
         sql += " AND p.platform=?"
         params.append(platform)
+    if channel_id:
+        sql += " AND p.channel_id=?"
+        params.append(channel_id)
     if days:
         sql += " AND p.posted_at>=?"
         params.append((datetime.now(timezone.utc) - timedelta(days=days)).isoformat())
@@ -115,6 +117,13 @@ def summary(db: DB, days: int | None = None) -> dict:
         all_rows += rows
         out["channels"][p] = totals(rows)
     out["combined"] = totals(all_rows)
+    # Every connected channel on its own, so several YouTube channels each get a card.
+    out["by_channel"] = []
+    for ch in db.channels():
+        t = totals(post_rows(db, ch["platform"], days, channel_id=ch["id"]))
+        out["by_channel"].append({"id": ch["id"], "platform": ch["platform"], "name": ch["name"],
+                                  "handle": ch.get("handle") or "", "avatar": ch.get("avatar") or "",
+                                  "enabled": bool(ch["enabled"]), **t})
     camp = estimated_earnings(db)
     out["campaign_estimated"] = round(sum(c["estimated"] for c in camp), 2)
     out["campaign_paid"] = round(sum(c["paid"] for c in camp), 2)

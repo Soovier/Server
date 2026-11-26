@@ -11,7 +11,7 @@ from .config import settings
 from .db import DB, get_db
 from .discovery import run_discovery
 from .publishers import publish_due
-from .review import auto_approve_pending
+from .review import auto_approve_pending, schedule_waiting
 
 log = logging.getLogger("sxm.jobs")
 
@@ -38,6 +38,7 @@ def pipeline(db: DB | None = None) -> str:
         _run("discover", run_discovery, db),
         _run("clip", process_new_sources, db),
         _run("auto_approve", auto_approve_pending, db),
+        _run("schedule_waiting", schedule_waiting, db),
     ])
 
 

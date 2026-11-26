@@ -7,6 +7,7 @@ import secrets
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import quote_plus
 from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, Form, HTTPException, Request
@@ -82,11 +83,13 @@ def page(request: Request, name: str, **ctx):
 # ---------------- Dashboard ----------------
 
 @app.get("/", response_class=HTMLResponse)
-def dashboard(request: Request, days: int = 30, channel: str = ""):
+def dashboard(request: Request, days: int = 30, channel: str = "", ch: int = 0):
     db = get_db()
     s = analytics.summary(db, days or None)
-    rows = analytics.post_rows(db, channel or None, days or None)
-    return page(request, "dashboard.html", s=s, rows=rows[:100], days=days, channel=channel)
+    rows = analytics.post_rows(db, channel or None, days or None, channel_id=ch or None)
+    ch_name = (db.get_channel(ch) or {}).get("name", "") if ch else ""
+    return page(request, "dashboard.html", s=s, rows=rows[:100], days=days, channel=channel, ch=ch,
+                ch_name=ch_name)
 
 
 @app.get("/api/summary")
@@ -143,7 +146,8 @@ def media(kind: str, name: str):
 @app.get("/schedule", response_class=HTMLResponse)
 def schedule_page(request: Request):
     db = get_db()
-    posts = db.q("""SELECT p.*, c.hook, c.thumb_path FROM posts p JOIN clips c ON c.id=p.clip_id
+    posts = db.q("""SELECT p.*, c.hook, c.thumb_path, ch.name channel_name FROM posts p
+                    JOIN clips c ON c.id=p.clip_id LEFT JOIN channels ch ON ch.id=p.channel_id
                     WHERE p.status IN ('scheduled','publishing','failed') ORDER BY p.scheduled_at""")
     jobs = db.q("SELECT * FROM job_log ORDER BY id DESC LIMIT 15")
     return page(request, "schedule.html", posts=posts, jobs=jobs, slots=settings.post_slots,
@@ -248,12 +252,33 @@ def sources_permitted(permitted: str = Form("")):
 # ---------------- Setup / OAuth ----------------
 
 @app.get("/setup", response_class=HTMLResponse)
-def setup_page(request: Request, msg: str = ""):
+def setup_page(request: Request, msg: str = "", pick: str = ""):
     db = get_db()
-    accounts = {p: db.get_account(p) for p in ("instagram", "facebook", "youtube")}
-    return page(request, "setup.html", accounts=accounts, missing=settings.missing(), msg=msg,
+    chans = {p: db.channels(p) for p in review.PLATFORMS}
+    return page(request, "setup.html", chans=chans, missing=settings.missing(), msg=msg, pick=pick,
                 platforms=review.enabled_platforms(db), yt_privacy=db.get_setting("youtube_privacy", "public"),
                 base_url=settings.base_url)
+
+
+@app.post("/channels/{channel_id}")
+def channel_action(channel_id: int, action: str = Form(...)):
+    db = get_db()
+    ch = db.get_channel(channel_id)
+    if not ch:
+        raise HTTPException(404)
+    if action in ("on", "off"):
+        db.set_channel_enabled(channel_id, action == "on")
+        if action == "on":
+            review.schedule_waiting(db)
+        else:
+            db.run("UPDATE posts SET status='cancelled' WHERE channel_id=? AND status='scheduled'", (channel_id,))
+        msg = f"{ch['name']}: {'posting here' if action == 'on' else 'stopped posting here'}"
+    elif action == "remove":
+        db.remove_channel(channel_id)
+        msg = f"Removed {ch['name']}"
+    else:
+        raise HTTPException(400)
+    return RedirectResponse("/setup?msg=" + quote_plus(msg), 303)
 
 
 @app.post("/settings/platforms")
@@ -284,12 +309,15 @@ def meta_callback(code: str = "", state: str = "", error_description: str = ""):
     _oauth_states.discard(state)
     try:
         res = meta.finish_login(get_db(), code)
-        msg = f"Connected Facebook Page {res['page']}" + (f" and Instagram @{res['instagram']}"
-                                                        if res["instagram"] else
-                                                        " (no Instagram business account linked to this Page)")
+        n_pg, n_ig = len(res["pages"]), len(res["instagram"])
+        msg = (f"Found {n_pg} Facebook Page{'s' if n_pg != 1 else ''} and {n_ig} Instagram "
+               f"account{'s' if n_ig != 1 else ''}.")
+        if res["needs_choice"]:
+            msg += " Switch on the ones you want SXM to post to."
+            return RedirectResponse("/setup?pick=meta&msg=" + quote_plus(msg), 303)
     except Exception as e:
         msg = f"Meta error: {e}"
-    return RedirectResponse("/setup?msg=" + msg.replace(" ", "+"), 303)
+    return RedirectResponse("/setup?msg=" + quote_plus(msg), 303)
 
 
 @app.get("/oauth/google/start")
@@ -305,7 +333,9 @@ def google_callback(code: str = "", state: str = "", error: str = ""):
         return RedirectResponse(f"/setup?msg=Google+login+failed:+{error or 'bad state'}", 303)
     _oauth_states.discard(state)
     try:
-        msg = f"Connected YouTube channel {youtube.finish_login(get_db(), code)['channel']}"
+        res = youtube.finish_login(get_db(), code)
+        review.schedule_waiting(get_db())
+        msg = f"Added YouTube channel {', '.join(res['channels'])}. To add another channel, click Add a channel again."
     except Exception as e:
         msg = f"YouTube error: {e}"
-    return RedirectResponse("/setup?msg=" + msg.replace(" ", "+"), 303)
+    return RedirectResponse("/setup?pick=youtube&msg=" + quote_plus(msg), 303)
