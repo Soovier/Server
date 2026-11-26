@@ -29,6 +29,7 @@ class Settings:
     base_url: str = field(default_factory=lambda: _env("SXM_BASE_URL", "http://localhost:8787"))
     data_dir: Path = field(default_factory=lambda: Path(_env("SXM_DATA_DIR", str(ROOT / "data"))))
     timezone: str = field(default_factory=lambda: _env("SXM_TIMEZONE", "America/New_York"))
+    owner_name: str = field(default_factory=lambda: _env("SXM_OWNER_NAME"))
     dashboard_password: str = field(default_factory=lambda: _env("SXM_DASHBOARD_PASSWORD"))
     session_secret: str = field(default_factory=lambda: _env("SXM_SESSION_SECRET", "change-me"))
 

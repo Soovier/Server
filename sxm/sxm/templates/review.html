@@ -1,42 +1,58 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="row" style="justify-content:space-between">
-  <h1>Review queue <span class="muted">({{ clips|length }})</span></h1>
-  <form method="post" action="/settings/auto-approve" class="card row" style="padding:10px 14px">
-    <label class="switch" style="margin:0"><input type="checkbox" name="enabled" value="1" style="width:auto" {{ 'checked' if auto_approve }}> Auto-approve</label>
-    <label style="margin:0">min score</label><input name="min_score" value="{{ min_score }}" style="width:70px">
-    <button class="ghost">Save</button>
+  <h1>Review <span class="muted">· {{ clips|length }} left</span></h1>
+  <form method="post" action="/settings/auto-approve" class="autoform">
+    <input type="hidden" name="min_score" value="{{ min_score }}">
+    <input type="hidden" name="enabled" value="{{ '0' if auto_approve else '1' }}">
+    <span class="muted small">Auto-approve</span>
+    <button class="toggle {{ 'on' if auto_approve }}" aria-pressed="{{ 'true' if auto_approve else 'false' }}" title="Turn auto-approve {{ 'off' if auto_approve else 'on' }}"><span></span></button>
   </form>
 </div>
-<p class="muted">Approved clips are scheduled into your next open posting slots. Auto-approve applies to clips from your campaigns and from streamers you have permission to clip (the ones you watch in .env plus any listed on the Sources page). Clips that fail the quality check or look likely to contain copyrighted music also wait here for you.</p>
 
-<div class="clips">
-{% for c in clips %}
-  <form class="card clip" method="post" action="/review/{{ c.id }}">
-    {% if c.video_path %}<video src="/media/clips/clip_{{ c.id }}.mp4" controls preload="metadata" {% if c.thumb_path %}poster="/media/clips/clip_{{ c.id }}.jpg"{% endif %}></video>{% endif %}
-    <div class="row" style="margin-top:8px">
-      <span class="tag">score {{ c.score }}</span>
-      <span class="tag">{{ '%.0f'|format(c.end_s - c.start_s) }}s</span>
-      {% if c.campaign %}<span class="tag good">{{ c.campaign }}</span>{% endif %}
-      {% if c.layout %}<span class="tag">{{ {'stack':'facecam + gameplay','blur':'full frame','crop':'center crop'}.get(c.layout, c.layout) }}</span>{% endif %}
-      {% if c.qc_status == 'fail' %}<span class="tag bad" title="{{ c.qc_notes }}">QC failed</span>{% elif c.qc_status == 'warn' %}<span class="tag warn" title="{{ c.qc_notes }}">QC warning</span>{% elif c.qc_status == 'pass' %}<span class="tag good">QC passed</span>{% endif %}
-      {% if (c.copyright_risk or 0) > 0.5 %}<span class="tag bad" title="Likely music playing">copyright risk {{ '%.0f'|format(c.copyright_risk*100) }}%</span>{% elif (c.copyright_risk or 0) > 0.25 %}<span class="tag warn">copyright risk {{ '%.0f'|format(c.copyright_risk*100) }}%</span>{% endif %}
-      {% if not c.permitted %}<span class="tag warn" title="Not from a campaign or permitted streamer">needs permission</span>{% endif %}
+{% if clips %}
+<p class="muted hint-line">Watch the clip. <b>Post it</b> with the green button, → key or swipe right. <b>Skip it</b> with ← or swipe left.</p>
+<div class="deck" id="deck">
+  {% for c in clips %}
+  <form class="card swipe" method="post" action="/review/{{ c.id }}" style="--i:{{ loop.index0 }}" data-swipe {% if not loop.first %}hidden{% endif %}>
+    <div class="swipe-media">
+      {% if c.video_path %}<video src="/media/clips/clip_{{ c.id }}.mp4" controls playsinline preload="metadata" {% if c.thumb_path %}poster="/media/clips/clip_{{ c.id }}.jpg"{% endif %}></video>{% endif %}
+      <span class="stamp yes">POST</span><span class="stamp no">SKIP</span>
     </div>
-    <div class="muted" style="margin-top:6px">{{ c.streamer }} · <a href="{{ c.source_url }}" target="_blank" rel="noopener">{{ (c.source_title or '')[:60] }}</a> @ {{ '%d:%02d'|format(c.start_s//60, c.start_s%60) }}</div>
-    {% if c.qc_notes %}<div class="qc muted">⚠ {{ c.qc_notes }}</div>{% endif %}
-    <label>On-screen hook</label><input name="hook" value="{{ c.hook or '' }}">
-    <label>Caption</label><textarea name="caption" rows="2">{{ c.caption or '' }}</textarea>
-    <label>Hashtags</label><input name="hashtags" value="{{ c.hashtags or '' }}">
-    {% if c.transcript %}<details><summary class="muted">Transcript</summary><p class="muted">{{ c.transcript }}</p></details>{% endif %}
-    <div class="row" style="margin-top:12px">
-      <button class="good" name="action" value="approve">Approve + schedule</button>
-      <button class="ghost" name="action" value="save">Save</button>
-      <button class="bad" name="action" value="reject">Reject</button>
+    <div class="swipe-body">
+      <div class="score-row">
+        <div class="score" style="--s:{{ [c.score / 10, 1]|min }}"><b>{{ '%.1f'|format(c.score) }}</b><span>score</span></div>
+        <div>
+          <b class="hook-preview">{{ c.hook or 'No hook yet' }}</b>
+          <div class="muted small">{{ c.streamer }} · {{ '%.0f'|format(c.end_s - c.start_s) }}s · <a href="{{ c.source_url }}" target="_blank" rel="noopener">source</a> @ {{ '%d:%02d'|format(c.start_s//60, c.start_s%60) }}</div>
+        </div>
+      </div>
+      <div class="checks">
+        <span class="check-chip {{ 'good' if c.qc_status == 'pass' else ('bad' if c.qc_status == 'fail' else ('warn' if c.qc_status else '')) }}">{{ {'pass':'✓ Quality OK','warn':'! Quality: check','fail':'✕ Quality failed'}.get(c.qc_status, '· Not checked') }}</span>
+        <span class="check-chip {{ 'bad' if (c.copyright_risk or 0) > 0.5 else ('warn' if (c.copyright_risk or 0) > 0.25 else 'good') }}">{{ '✓ No music detected' if (c.copyright_risk or 0) <= 0.25 else ('! Music risk ' ~ ((c.copyright_risk or 0) * 100)|round|int ~ '%') }}</span>
+        <span class="check-chip {{ 'good' if c.permitted else 'warn' }}">{{ '✓ Permission' if c.permitted else '! No permission listed' }}</span>
+        {% if c.layout %}<span class="check-chip">{{ {'stack':'Facecam + gameplay','blur':'Full frame','crop':'Center crop'}.get(c.layout, c.layout) }}</span>{% endif %}
+        {% if c.campaign %}<span class="check-chip good">💰 {{ c.campaign }}</span>{% endif %}
+      </div>
+      {% if c.qc_notes %}<p class="qc muted">{{ c.qc_notes }}</p>{% endif %}
+      <details class="edit">
+        <summary>✏️ Edit text</summary>
+        <label>On-screen hook</label><input name="hook" value="{{ c.hook or '' }}">
+        <label>Caption</label><textarea name="caption" rows="2">{{ c.caption or '' }}</textarea>
+        <label>Hashtags</label><input name="hashtags" value="{{ c.hashtags or '' }}">
+        {% if c.transcript %}<label>What's said</label><p class="muted small">{{ c.transcript }}</p>{% endif %}
+        <button class="ghost" name="action" value="save">Save text</button>
+      </details>
+      <div class="swipe-actions">
+        <button class="bad big" name="action" value="reject" data-dir="left">← Skip</button>
+        <button class="good big" name="action" value="approve" data-dir="right" data-confetti>Post it →</button>
+      </div>
     </div>
   </form>
-{% else %}
-  <div class="card muted">Nothing to review. New clips show up here after each scheduled run, or press "Find + clip now" on the Schedule page.</div>
-{% endfor %}
+  {% endfor %}
 </div>
+{% else %}
+<div class="card caught-up"><span class="big-emoji">🎉</span><div><b>Nothing to review.</b><div class="muted">New clips appear here after each run. Want some now?</div>
+  <form method="post" action="/jobs/pipeline" style="margin-top:10px"><input type="hidden" name="back" value="/review"><button data-confetti>⚡ Find + clip now</button></form></div></div>
+{% endif %}
 {% endblock %}

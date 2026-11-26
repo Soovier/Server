@@ -33,9 +33,145 @@
     });
   }
 
+  // ---------- little satisfying things ----------
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const fmt = {
+    num: (v) => Math.round(v).toLocaleString(),
+    dec: (v) => v.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 }),
+    money: (v) => '$' + v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+  };
+
+  function countUp(el, to) {
+    const f = fmt[el.dataset.fmt] || fmt.num;
+    const from = parseFloat(el.dataset.shown || '0');
+    el.dataset.shown = to;
+    if (reduce || from === to) { el.textContent = f(to); return; }
+    const t0 = performance.now(), dur = 900;
+    const tick = (t) => {
+      const k = Math.min(1, (t - t0) / dur), e = 1 - Math.pow(1 - k, 3);
+      el.textContent = f(from + (to - from) * e);
+      if (k < 1) requestAnimationFrame(tick);
+      else if (from !== 0) { el.classList.remove('bump'); void el.offsetWidth; el.classList.add('bump'); }
+    };
+    requestAnimationFrame(tick);
+  }
+
+  function spark(svg) {
+    const pts = JSON.parse(svg.dataset.spark || '[]');
+    if (pts.length < 2) { svg.remove(); return; }
+    const max = Math.max(...pts, 1);
+    const xy = pts.map((v, i) => [i / (pts.length - 1) * 100, 26 - v / max * 24]);
+    const line = xy.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
+    svg.innerHTML = `<path class="area" d="${line} L100 28 L0 28 Z"/><path class="line" d="${line}" pathLength="1"/>`;
+  }
+
+  function confetti(x, y) {
+    if (reduce) return;
+    const c = document.createElement('canvas');
+    c.className = 'confetti';
+    c.width = innerWidth; c.height = innerHeight;
+    document.body.appendChild(c);
+    const g = c.getContext('2d');
+    const colors = ['#22d3ee', '#5eead4', '#38bdf8', '#fbbf24', '#f472b6', '#34d399'];
+    const bits = Array.from({ length: 90 }, () => ({
+      x, y, vx: (Math.random() - 0.5) * 12, vy: -Math.random() * 12 - 4, r: Math.random() * 6 + 3,
+      c: colors[(Math.random() * colors.length) | 0], a: Math.random() * 6, va: (Math.random() - 0.5) * 0.4,
+    }));
+    let f = 0;
+    (function draw() {
+      g.clearRect(0, 0, c.width, c.height);
+      bits.forEach((b) => {
+        b.vy += 0.35; b.x += b.vx; b.y += b.vy; b.a += b.va;
+        g.save(); g.translate(b.x, b.y); g.rotate(b.a); g.fillStyle = b.c;
+        g.fillRect(-b.r / 2, -b.r / 4, b.r, b.r / 2); g.restore();
+      });
+      if (++f < 90) requestAnimationFrame(draw); else c.remove();
+    })();
+  }
+
+  // Swipe deck on Review: drag, arrow keys or buttons; the card flies off before submitting.
+  function fly(form, dir) {
+    const btn = form.querySelector(`[data-dir="${dir}"]`);
+    if (!btn || form.classList.contains('gone')) return;
+    form.classList.add('gone', dir === 'right' ? 'fly-right' : 'fly-left');
+    if (dir === 'right') { const r = btn.getBoundingClientRect(); confetti(r.left + r.width / 2, r.top); }
+    setTimeout(() => form.requestSubmit(btn), reduce ? 0 : 320);
+  }
+
+  function swipeable(form) {
+    const media = form.querySelector('.swipe-media');
+    let x0 = null, dx = 0;
+    media.addEventListener('pointerdown', (e) => {
+      if (e.target.closest('video') && e.offsetY > e.target.clientHeight - 48) return; // let video controls work
+      x0 = e.clientX; dx = 0; form.setPointerCapture(e.pointerId); form.classList.add('dragging');
+    });
+    form.addEventListener('pointermove', (e) => {
+      if (x0 === null) return;
+      dx = e.clientX - x0;
+      form.style.transform = `translateX(${dx}px) rotate(${dx / 25}deg)`;
+      form.style.setProperty('--yes', Math.max(0, Math.min(1, dx / 120)));
+      form.style.setProperty('--no', Math.max(0, Math.min(1, -dx / 120)));
+    });
+    const end = () => {
+      if (x0 === null) return;
+      x0 = null; form.classList.remove('dragging');
+      if (Math.abs(dx) > 110) { form.style.transform = ''; fly(form, dx > 0 ? 'right' : 'left'); }
+      else { form.style.transform = ''; form.style.setProperty('--yes', 0); form.style.setProperty('--no', 0); }
+    };
+    form.addEventListener('pointerup', end);
+    form.addEventListener('pointercancel', end);
+  }
+
+  document.addEventListener('keydown', (e) => {
+    if (e.target.closest('input, textarea, select') || e.metaKey || e.ctrlKey) return;
+    const top = document.querySelector('form[data-swipe]:not([hidden]):not(.gone)');
+    if (!top) return;
+    if (e.key === 'ArrowRight') { e.preventDefault(); fly(top, 'right'); }
+    if (e.key === 'ArrowLeft') { e.preventDefault(); fly(top, 'left'); }
+  });
+
+  document.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-dir]');
+    if (b && b.form && b.form.hasAttribute('data-swipe')) { e.preventDefault(); fly(b.form, b.dataset.dir); return; }
+    const c = e.target.closest('[data-confetti]');
+    if (c) { const r = c.getBoundingClientRect(); confetti(r.left + r.width / 2, r.top); }
+  }, true);
+
+  // Home: keep the numbers live without reloading.
+  let liveTimer = null;
+  function live() {
+    clearInterval(liveTimer);
+    if (!document.getElementById('stats')) return;
+    liveTimer = setInterval(async () => {
+      if (document.hidden || !document.getElementById('stats')) return;
+      try {
+        const h = await (await fetch('/api/home?days=' + (window.SXM_HOME_DAYS || 7))).json();
+        h.stats.forEach((s) => {
+          const el = document.querySelector(`.stat-value[data-key="${s.key}"]`);
+          if (el && parseFloat(el.dataset.shown) !== s.value) countUp(el, s.value);
+        });
+        document.querySelectorAll('.flow .node b').forEach((el, i) => {
+          const n = h.pipeline[i] && h.pipeline[i].n;
+          if (n !== undefined && parseFloat(el.dataset.shown) !== n) {
+            countUp(el, n); el.closest('.node').classList.toggle('busy', n > 0);
+          }
+        });
+      } catch (_) { /* offline for a moment; try again next tick */ }
+    }, 15000);
+  }
+
   function enhance(root) {
     // Messages passed back after an action pop up as a toast instead of a banner.
     root.querySelectorAll('.toast-src').forEach((n) => { toast(n.textContent.trim()); n.remove(); });
+    root.querySelectorAll('[data-count]').forEach((el) => countUp(el, parseFloat(el.dataset.count) || 0));
+    root.querySelectorAll('svg[data-spark]').forEach(spark);
+    root.querySelectorAll('svg[data-ring]').forEach((r) => {
+      requestAnimationFrame(() => r.style.setProperty('--p', r.dataset.ring));
+    });
+    root.querySelectorAll('form[data-swipe]').forEach(swipeable);
+    const started = new URLSearchParams(location.search).get('started');
+    if (started) toast(started === 'pipeline' ? '⚡ Finding and clipping now. New clips land in Review.' : `Started ${started}.`);
+    live();
     root.querySelectorAll('.clip video').forEach((v) => {
       v.addEventListener('mouseenter', () => { v.muted = true; v.play().catch(() => {}); });
       v.addEventListener('mouseleave', () => { if (v.muted) v.pause(); });

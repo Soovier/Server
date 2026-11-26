@@ -288,7 +288,7 @@ def test_web_pages_render(db):
     camp = campaigns.add_campaign(db, name="Camp", url="https://contentrewards.com/c/x")
     make_clip(db, campaign_id=camp)
     c = TestClient(app)
-    for path in ["/", "/review", "/schedule", "/campaigns", "/sources", "/setup", "/api/summary", "/?days=0&channel=youtube"]:
+    for path in ["/", "/review", "/schedule", "/campaigns", "/sources", "/setup", "/api/summary", "/stats?days=0&channel=youtube", "/stats", "/api/home", "/?days=30"]:
         r = c.get(path)
         assert r.status_code == 200, (path, r.text[:500])
     assert "SXM" in c.get("/").text

@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import analytics, campaigns, review
+from . import analytics, campaigns, home, review
 from .config import settings
 from .db import get_db
 from .discovery import add_manual_url
@@ -83,12 +83,28 @@ def page(request: Request, name: str, **ctx):
 # ---------------- Dashboard ----------------
 
 @app.get("/", response_class=HTMLResponse)
+def home_page(request: Request, days: int = 7):
+    return page(request, "home.html", nav="home", h=home.state(get_db(), days if days in (7, 30, 90) else 7),
+                hello=_hello(), owner=settings.owner_name)
+
+
+@app.get("/api/home")
+def api_home(days: int = 7):
+    return JSONResponse(home.state(get_db(), days if days in (7, 30, 90) else 7))
+
+
+def _hello() -> str:
+    hour = datetime.now(ZoneInfo(settings.timezone)).hour
+    return "Good morning" if 5 <= hour < 12 else "Good afternoon" if hour < 17 else "Good evening"
+
+
+@app.get("/stats", response_class=HTMLResponse)
 def dashboard(request: Request, days: int = 30, channel: str = "", ch: int = 0):
     db = get_db()
     s = analytics.summary(db, days or None)
     rows = analytics.post_rows(db, channel or None, days or None, channel_id=ch or None)
     ch_name = (db.get_channel(ch) or {}).get("name", "") if ch else ""
-    return page(request, "dashboard.html", s=s, rows=rows[:100], days=days, channel=channel, ch=ch,
+    return page(request, "dashboard.html", nav="stats", s=s, rows=rows[:100], days=days, channel=channel, ch=ch,
                 ch_name=ch_name)
 
 
@@ -170,17 +186,21 @@ def schedule_action(post_id: int, action: str = Form(...), when: str = Form(""))
 
 
 @app.post("/jobs/{name}")
-def run_job(name: str):
+def run_job(name: str, back: str = Form("/schedule")):
     if name not in JOBS:
         raise HTTPException(404)
     threading.Thread(target=JOBS[name], daemon=True).start()
-    return RedirectResponse("/schedule?started=" + name, 303)
+    return RedirectResponse(_safe_back(back) + ("&" if "?" in _safe_back(back) else "?") + "started=" + name, 303)
+
+
+def _safe_back(back: str) -> str:
+    return back if back.startswith("/") and not back.startswith("//") else "/"
 
 
 @app.post("/settings/pause")
-def pause(paused: str = Form("0")):
+def pause(paused: str = Form("0"), back: str = Form("/schedule")):
     get_db().set_setting("paused", "1" if paused == "1" else "0")
-    return RedirectResponse("/schedule", 303)
+    return RedirectResponse(_safe_back(back), 303)
 
 
 # ---------------- Campaigns ----------------
