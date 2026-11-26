@@ -57,6 +57,14 @@ startup) and it runs on its own schedule.
 Clips that fail QC or score above `auto_approve_max_copyright_risk` (0.5) wait in Review even with auto-approve on.
 No n8n needed: the built-in scheduler runs the whole pipeline.
 
+### Import queue
+
+Already have the stream? Open **Import** and drag in as many videos as you like
+(or paste links, or copy files into `data/inbox/<streamer>/`). Pick the streamer,
+clips per video and format (Auto, Facecam + gameplay, Full frame, Center crop);
+SXM clips them one after another right away with live progress, then they land
+in Review with captions written, ready to copy or download.
+
 ### Several channels
 
 Setup lists every connected channel. YouTube: press **Add a channel** once per

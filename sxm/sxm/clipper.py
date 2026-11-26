@@ -22,6 +22,7 @@ import math
 import re
 import shutil
 import subprocess
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -235,10 +236,27 @@ def ai_refine(moments: list[Moment], words: list[Word], title: str, streamer: st
     return out or moments
 
 
+def _hype_phrase(words: list[Word], size: int = 6) -> str:
+    """The most exciting few words said in the clip (hype words, shouting, '!')."""
+    if not words:
+        return ""
+    toks = [w.text.strip() for w in words]
+
+    def heat(i: int) -> float:
+        t = toks[i]
+        starts_phrase = any(" ".join(x.lower().strip("!?.,") for x in toks[i:i + len(h.split())]) == h
+                            for h in HYPE_WORDS)
+        return (2.0 * starts_phrase
+                + 1.0 * ("!" in t) + 1.0 * (t.isupper() and len(t) > 1))
+    scores = [heat(i) for i in range(len(toks))]
+    best = max(range(max(1, len(toks) - size + 1)), key=lambda i: (sum(scores[i:i + size]), scores[i], -i))
+    phrase = " ".join(toks[best:best + size]).strip(" ,.")
+    return phrase[:48]
+
+
 def default_copy(m: Moment, streamer: str, title: str) -> Moment:
     if not m.hook:
-        first = " ".join(w.text.strip() for w in m.words[:6])
-        m.hook = (first[:40] + "...") if first else (title[:40] if title else "WAIT FOR IT")
+        m.hook = _hype_phrase(m.words) or (title[:40] if title else "WAIT FOR IT")
     if not m.caption:
         line = m.hook.rstrip(".") if m.hook and m.hook != "WAIT FOR IT" else (title[:80] or "Wait for it")
         credit = f" 🎥 {streamer}" if streamer else ""
@@ -251,22 +269,37 @@ def default_copy(m: Moment, streamer: str, title: str) -> Moment:
 
 # ---------------- main entry ----------------
 
+# One video at a time, whether the scheduler or the import queue asked for it.
+CLIP_LOCK = threading.Lock()
+
+
 def clip_source(db: DB, source_id: int, renderer=render_clip) -> list[int]:
     src = db.one("SELECT * FROM sources WHERE id=?", (source_id,))
     if not src:
         return []
     camp = db.one("SELECT * FROM campaigns WHERE id=?", (src["campaign_id"],)) if src["campaign_id"] else None
+    want = int(src.get("clips_wanted") or settings.clips_per_source)
+
+    def step(msg: str, **extra) -> None:
+        db.update("sources", source_id, progress=msg, **extra)
     try:
         path = Path(src["local_path"]) if src.get("local_path") and Path(src["local_path"]).exists() else None
         if not path:
-            db.update("sources", source_id, status="downloading")
+            step("Downloading the video", status="downloading", error=None)
             path = download(src["url"], settings.media_dir / "sources")
             db.update("sources", source_id, local_path=str(path), status="downloaded")
+        step("Finding the best moments", status="clipping", error=None)
         duration = probe_duration(path) or float(src.get("duration_s") or 0)
+        if not src.get("duration_s") and duration:
+            db.update("sources", source_id, duration_s=duration)
+        step("Listening for words (captions)")
         words = transcribe(path)
+        step("Measuring hype and reactions")
         energy = audio_energy(path)
         energy_z = _zscores(energy)
         short_source = duration <= settings.clip_max_seconds + 5
+        if not short_source:
+            step("Detecting scene changes")
         cuts = [] if short_source else analysis.scene_cuts(path)
         if short_source:
             moments = [Moment(0.0, duration, 1.0)]
@@ -276,7 +309,7 @@ def clip_source(db: DB, source_id: int, renderer=render_clip) -> list[int]:
         else:
             length = max(settings.clip_min_seconds, min(45, settings.clip_max_seconds))
             windows = score_windows(energy, words, duration, length, cuts=cuts)
-            moments = pick_moments(windows, settings.clips_per_source * 2)
+            moments = pick_moments(windows, want * 2)
             moments = [snap_to_speech(m, words) for m in moments]
             for m in moments:
                 cut_start = analysis.snap_to_cut(m.start, cuts)
@@ -286,9 +319,10 @@ def clip_source(db: DB, source_id: int, renderer=render_clip) -> list[int]:
                                if m.start <= w.start < m.end]
                 m.end = min(m.end, m.start + settings.clip_max_seconds)  # keep inside platform limits
                 m.words = [w for w in m.words if w.start < m.end - m.start]
+        step("Writing hooks and captions")
         moments = ai_refine(moments, words, src["title"] or "", src["streamer"] or "",
                             camp["rules"] if camp else "")
-        moments = sorted(moments, key=lambda m: m.score, reverse=True)[: settings.clips_per_source]
+        moments = sorted(moments, key=lambda m: m.score, reverse=True)[:want]
         bursts = analysis.reaction_bursts(energy_z)
         fixed_cam = analysis.parse_box(settings.facecam_box)
 
@@ -298,7 +332,8 @@ def clip_source(db: DB, source_id: int, renderer=render_clip) -> list[int]:
             if camp and camp.get("required_tags"):
                 m.hashtags = (m.hashtags + " " + camp["required_tags"]).strip()
             # Framing: facecam on top when there is one, else blur (or what you set).
-            mode, cam = settings.reframe_mode, None
+            step(f"Editing clip {len(ids) + 1} of {len(moments)}")
+            mode, cam = (src.get("layout") or settings.reframe_mode), None
             if mode in ("auto", "stack"):
                 cam = fixed_cam or analysis.detect_facecam(path, m.start, m.end)
                 mode = "stack" if cam else "blur"
@@ -324,17 +359,26 @@ def clip_source(db: DB, source_id: int, renderer=render_clip) -> list[int]:
                 ids.append(clip_id)
             except Exception as e:
                 db.update("clips", clip_id, status="failed", review_note=str(e)[:500])
-        db.update("sources", source_id, status="clipped")
+        db.update("sources", source_id, status="clipped", clips_made=len(ids),
+                  progress=f"Done: {len(ids)} clip{'s' if len(ids) != 1 else ''} ready to review")
         return ids
     except Exception as e:
-        db.update("sources", source_id, status="failed", error=str(e)[:500])
+        db.update("sources", source_id, status="failed", error=str(e)[:500], progress="Failed")
         return []
 
 
+def next_source(db: DB) -> dict | None:
+    return db.one("SELECT id FROM sources WHERE status IN ('new','downloaded') ORDER BY "
+                  "priority DESC, (campaign_id IS NULL), id LIMIT 1")
+
+
 def process_new_sources(db: DB, limit: int = 3) -> str:
-    rows = db.q("SELECT id FROM sources WHERE status IN ('new','downloaded') ORDER BY "
-                "(campaign_id IS NULL), id LIMIT ?", (limit,))
-    made = 0
-    for r in rows:
-        made += len(clip_source(db, r["id"]))
-    return f"clipped {len(rows)} sources -> {made} clips"
+    done = made = 0
+    for _ in range(limit):
+        with CLIP_LOCK:
+            r = next_source(db)
+            if not r:
+                break
+            made += len(clip_source(db, r["id"]))
+            done += 1
+    return f"clipped {done} sources -> {made} clips"

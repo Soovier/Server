@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import analytics, campaigns, home, review
+from . import analytics, campaigns, home, importer, review
 from .config import settings
 from .db import get_db
 from .discovery import add_manual_url
@@ -290,6 +290,87 @@ def sources_page(request: Request):
 def sources_add(url: str = Form(...), campaign_id: str = Form("")):
     add_manual_url(get_db(), url.strip(), int(campaign_id) if campaign_id else None)
     return RedirectResponse("/sources", 303)
+
+
+# ---------------- Import queue ----------------
+
+LAYOUT_INFO = [
+    ("auto", "Auto (recommended)", "Facecam on top + gameplay below when SXM finds a facecam, otherwise full frame."),
+    ("stack", "Facecam + gameplay", "Streamer's camera on top third, gameplay filling the rest. The classic streamer Short."),
+    ("blur", "Full frame", "The whole 16:9 picture in the middle over a blurred copy. Nothing gets cut off."),
+    ("crop", "Center crop", "Zooms into the middle of the frame. Best for IRL or just-chatting streams."),
+]
+
+
+@app.get("/import", response_class=HTMLResponse)
+def import_page(request: Request, msg: str = ""):
+    db = get_db()
+    return page(request, "import.html", nav="import", queue=importer.queue(db), layouts=LAYOUT_INFO,
+                inbox=str(importer.inbox_dir()), import_layout=db.get_setting("import_layout", "auto"),
+                import_clips=db.get_setting("import_clips", str(settings.clips_per_source)),
+                permitted=sorted(review.permitted_streamers(db)), msg=msg,
+                import_streamer=db.get_setting("import_streamer", ""))
+
+
+@app.get("/api/queue")
+def api_queue():
+    rows = importer.queue(get_db())
+    keep = ("id", "name", "streamer", "status", "state", "progress", "clips_made", "to_review", "position",
+            "length", "error", "layout", "clips_wanted")
+    return JSONResponse([{k: r.get(k) for k in keep} for r in rows])
+
+
+@app.post("/import/upload")
+async def import_upload(request: Request, name: str, streamer: str = "", layout: str = "auto", clips: int = 0):
+    dest = importer.uploads_dir() / importer.safe_name(name)
+    n = 1
+    while dest.exists():
+        dest = dest.with_name(f"{Path(importer.safe_name(name)).stem}-{n}{dest.suffix}")
+        n += 1
+    part = dest.with_suffix(dest.suffix + ".part")
+    try:
+        with part.open("wb") as f:
+            async for chunk in request.stream():
+                f.write(chunk)
+        part.rename(dest)
+    except Exception:
+        part.unlink(missing_ok=True)
+        raise
+    db = get_db()
+    _remember_import_prefs(db, streamer, layout, clips)
+    sid = importer.add_file(db, dest, streamer=streamer, layout=layout, clips=clips,
+                            title=Path(name).stem.replace("_", " "))
+    return JSONResponse({"ok": True, "id": sid, "file": dest.name})
+
+
+@app.post("/import/links")
+def import_links(links: str = Form(""), streamer: str = Form(""), layout: str = Form("auto"), clips: int = Form(0)):
+    db = get_db()
+    _remember_import_prefs(db, streamer, layout, clips)
+    ids = importer.add_links(db, links, streamer=streamer, layout=layout, clips=clips)
+    msg = f"Added {len(ids)} video{'s' if len(ids) != 1 else ''} to the queue" if ids else "No new links found"
+    return RedirectResponse("/import?msg=" + quote_plus(msg), 303)
+
+
+@app.post("/import/{source_id}/{action}")
+def import_action(source_id: int, action: str):
+    db = get_db()
+    if action == "retry":
+        importer.retry(db, source_id)
+    elif action == "remove":
+        importer.remove(db, source_id)
+    else:
+        raise HTTPException(404)
+    return RedirectResponse("/import", 303)
+
+
+def _remember_import_prefs(db, streamer: str, layout: str, clips: int) -> None:
+    if layout in importer.LAYOUTS:
+        db.set_setting("import_layout", layout)
+    if clips:
+        db.set_setting("import_clips", str(max(1, min(int(clips), 15))))
+    if streamer.strip():
+        db.set_setting("import_streamer", streamer.strip())
 
 
 @app.post("/sources/permitted")

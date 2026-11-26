@@ -175,6 +175,88 @@
     }
   });
 
+  // ---------- Import page ----------
+  function importOpts() {
+    const layout = (document.querySelector('input[name="imp-layout"]:checked') || {}).value || 'auto';
+    return { streamer: (document.getElementById('imp-streamer') || {}).value || '',
+             clips: (document.getElementById('imp-clips') || {}).value || '', layout };
+  }
+
+  function uploadOne(file) {
+    return new Promise((resolve) => {
+      const o = importOpts();
+      const row = document.createElement('div');
+      row.className = 'up';
+      row.innerHTML = `<span class="ellipsis"></span><div class="up-bar"><i></i></div><span class="small muted up-pct">0%</span>`;
+      row.querySelector('.ellipsis').textContent = file.name;
+      document.getElementById('uploads').prepend(row);
+      const q = new URLSearchParams({ name: file.name, streamer: o.streamer, layout: o.layout, clips: o.clips });
+      const x = new XMLHttpRequest();
+      x.open('POST', '/import/upload?' + q);
+      x.upload.onprogress = (e) => {
+        if (!e.lengthComputable) return;
+        const pct = Math.round(e.loaded / e.total * 100);
+        row.querySelector('.up-bar i').style.width = pct + '%';
+        row.querySelector('.up-pct').textContent = pct + '%';
+      };
+      x.onload = () => {
+        const ok = x.status < 300;
+        row.classList.add(ok ? 'ok' : 'bad');
+        row.querySelector('.up-pct').textContent = ok ? '✓ queued' : 'failed';
+        if (ok) { const r = row.getBoundingClientRect(); confetti(r.left + 40, r.top); }
+        refreshQueue();
+        resolve(ok);
+      };
+      x.onerror = () => { row.classList.add('bad'); row.querySelector('.up-pct').textContent = 'failed'; resolve(false); };
+      x.send(file);
+    });
+  }
+
+  async function uploadAll(files) {
+    const vids = [...files].filter((f) => /^video\//.test(f.type) || /\.(mkv|flv|ts|mp4|mov|webm|m4v|avi)$/i.test(f.name));
+    if (!vids.length) { toast('Those don\'t look like videos.', 'bad'); return; }
+    toast(`Uploading ${vids.length} video${vids.length > 1 ? 's' : ''}…`);
+    for (const f of vids) await uploadOne(f);
+    toast('All uploaded. Clipping has started.');
+  }
+
+  async function refreshQueue() {
+    const cur = document.getElementById('queue');
+    if (!cur) return;
+    try {
+      const html = await (await fetch('/import', { headers: { 'X-SXM': '1' } })).text();
+      const next = new DOMParser().parseFromString(html, 'text/html').getElementById('queue');
+      if (next && next.innerHTML !== cur.innerHTML) cur.innerHTML = next.innerHTML;
+    } catch (_) {}
+  }
+
+  let queueTimer = null;
+  function importPage(root) {
+    clearInterval(queueTimer);
+    const drop = root.querySelector('#drop');
+    if (!drop) return;
+    const input = root.querySelector('#files');
+    input.addEventListener('change', () => { uploadAll(input.files); input.value = ''; });
+    ['dragenter', 'dragover'].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.add('over'); }));
+    ['dragleave', 'drop'].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.remove('over'); }));
+    drop.addEventListener('drop', (e) => uploadAll(e.dataTransfer.files));
+    root.querySelectorAll('.layout-pick input').forEach((r) => r.addEventListener('change', () => {
+      root.querySelectorAll('.lp').forEach((l) => l.classList.toggle('on', l.contains(r) ? r.checked : false));
+    }));
+    root.querySelectorAll('[data-step]').forEach((b) => b.addEventListener('click', () => {
+      const i = root.querySelector('#imp-clips');
+      i.value = Math.max(1, Math.min(15, (parseInt(i.value) || 3) + parseInt(b.dataset.step)));
+    }));
+    const lf = root.querySelector('#links-form');
+    lf.addEventListener('submit', () => {
+      const o = importOpts();
+      lf.streamer.value = o.streamer; lf.layout.value = o.layout; lf.clips.value = o.clips;
+    }, true);
+    queueTimer = setInterval(() => { if (!document.hidden && document.getElementById('queue')) refreshQueue(); }, 3000);
+  }
+  // Dropping a file anywhere else on the Import page shouldn't open it in the browser.
+  ['dragover', 'drop'].forEach((t) => window.addEventListener(t, (e) => { if (document.getElementById('drop')) e.preventDefault(); }));
+
   // Home: keep the numbers live without reloading.
   let liveTimer = null;
   function live() {
@@ -207,6 +289,7 @@
       requestAnimationFrame(() => r.style.setProperty('--p', r.dataset.ring));
     });
     root.querySelectorAll('form[data-swipe]').forEach(swipeable);
+    importPage(root);
     const started = new URLSearchParams(location.search).get('started');
     if (started) toast(started === 'pipeline' ? '⚡ Finding and clipping now. New clips land in Review.' : `Started ${started}.`);
     live();

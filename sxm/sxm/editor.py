@@ -94,6 +94,20 @@ def _punch_expr(punches: list[float], amount: float = 0.12, half: float = 0.35) 
     return f"(1+{amount}*min(1,{bumps}))"
 
 
+def _game_crop(facecam, game_h: int) -> str:
+    """Gameplay part of the facecam layout: a full-height slice of the frame,
+    slid sideways so the facecam corner isn't in it twice."""
+    wfrac = (W / game_h) * (9 / 16)          # slice width as a share of a 16:9 frame
+    x = (1 - wfrac) / 2
+    cam_l, cam_r = facecam.x, facecam.x + facecam.w
+    if cam_r <= 0.5 and cam_r > x:          # cam on the left: start after it
+        x = cam_r
+    elif cam_l >= 0.5 and cam_l < x + wfrac:  # cam on the right: end before it
+        x = cam_l - wfrac
+    x = min(max(x, 0.0), 1 - wfrac)
+    return f"crop=ih*{W}/{game_h}:ih:'min(iw-ow,iw*{x:.4f})':0"
+
+
 def render_command(src: Path, out: Path, start: float, end: float, ass_path: Path | None,
                    mode: str = "blur", facecam=None, bars=None, punches: list[float] | None = None) -> list[str]:
     """Build the FFmpeg command.
@@ -113,7 +127,7 @@ def render_command(src: Path, out: Path, start: float, end: float, ass_path: Pat
         game_h = H - cam_h
         vf = (f"[0:v]{pre}split=2[a][b];"
               f"[a]{facecam.ffmpeg_crop()},scale={W}:{cam_h}:force_original_aspect_ratio=increase,crop={W}:{cam_h}[cam];"
-              f"[b]scale=-2:{game_h},crop={W}:{game_h}[game];"
+              f"[b]{_game_crop(facecam, game_h)},scale={W}:{game_h}[game];"
               f"[cam][game]vstack=inputs=2,setsar=1")
     elif mode == "crop":
         vf = f"[0:v]{pre}crop=ih*9/16:ih,scale={W}:{H},setsar=1"

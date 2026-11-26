@@ -461,3 +461,48 @@ def test_paste_text_and_downloads(db, tmp_path):
         assert c.get("/downloads?show=new").text.count(f"/download/{cid}") == 0
         assert c.get("/download/9999").status_code == 404
     assert db.one("SELECT downloaded_at FROM clips WHERE id=?", (cid,))["downloaded_at"]
+
+
+def test_import_queue_files_links_and_inbox(db, tmp_path, monkeypatch):
+    from sxm import importer
+    monkeypatch.setattr(importer, "wake", lambda: None)
+    f = tmp_path / "xqc stream.mp4"
+    f.write_bytes(b"0" * 50)
+    sid = importer.add_file(db, f, streamer="xqc", layout="stack", clips=5)
+    assert importer.add_file(db, f) is None  # same file twice is ignored
+    src = db.one("SELECT * FROM sources WHERE id=?", (sid,))
+    assert src["status"] == "downloaded" and src["layout"] == "stack" and src["clips_wanted"] == 5 and src["priority"] > 0
+    ids = importer.add_links(db, "https://www.twitch.tv/videos/1 and\nhttps://youtu.be/abc).", streamer="kai")
+    assert len(ids) == 2 and db.one("SELECT url FROM sources WHERE id=?", (ids[1],))["url"] == "https://youtu.be/abc"
+    sub = importer.inbox_dir() / "jynxzi"
+    sub.mkdir(parents=True, exist_ok=True)
+    v = sub / "vod.mkv"
+    v.write_bytes(b"1" * 10)
+    import os, time as _t
+    os.utime(v, (_t.time() - 60, _t.time() - 60))
+    assert importer.scan_inbox(db) == 1
+    assert db.one("SELECT streamer FROM sources WHERE local_path=?", (str(v.resolve()),))["streamer"] == "jynxzi"
+    q = importer.queue(db)
+    assert [r["state"] for r in q] == ["waiting"] * 4 and q[0]["position"] == 1
+    importer.remove(db, ids[0])
+    assert db.one("SELECT status FROM sources WHERE id=?", (ids[0],))["status"] == "skipped"
+    importer.retry(db, ids[0])
+    assert db.one("SELECT status FROM sources WHERE id=?", (ids[0],))["status"] == "new"
+
+
+def test_import_upload_endpoint(db, monkeypatch):
+    from fastapi.testclient import TestClient
+    from sxm import importer
+    from sxm.web import app
+    monkeypatch.setattr(importer, "wake", lambda: None)
+    with TestClient(app) as c:
+        r = c.post("/import/upload", params={"name": "../my VOD!!.mp4", "streamer": "xqc", "layout": "blur", "clips": 4},
+                   content=b"x" * 1000)
+        assert r.status_code == 200 and r.json()["file"] == "my VOD.mp4"
+        assert (importer.uploads_dir() / "my VOD.mp4").stat().st_size == 1000
+        page = c.get("/import")
+        assert page.status_code == 200 and "my VOD" in page.text and "#1 in line" in page.text
+        assert c.get("/api/queue").json()[0]["layout"] == "blur"
+        r = c.post("/import/links", data={"links": "https://youtu.be/zzz", "streamer": "", "layout": "auto", "clips": 2},
+                   follow_redirects=False)
+        assert r.status_code == 303

@@ -23,6 +23,8 @@ def main() -> None:
     from .web import app
 
     start_scheduler()
+    from .importer import start_worker
+    start_worker()
     port = urlparse(settings.base_url).port or 8787
     uvicorn.run(app, host="127.0.0.1", port=port)
 

@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Import streams</h1>
+<p class="muted" style="margin-top:-8px">Already have the stream? Drop it here. SXM finds the best moments, edits each one into a vertical clip, burns in captions from what's said, and sends them to Review.</p>
+{% if msg %}<div class="notice toast-src">{{ msg }}</div>{% endif %}
+
+<section class="card import-card reveal">
+  <div class="import-opts">
+    <div><label>Streamer</label>
+      <input id="imp-streamer" list="streamers" value="{{ import_streamer }}" placeholder="e.g. xqc">
+      <datalist id="streamers">{% for p in permitted %}<option value="{{ p }}">{% endfor %}</datalist></div>
+    <div><label>Clips per video</label>
+      <div class="stepper"><button type="button" class="ghost" data-step="-1">−</button><input id="imp-clips" type="number" min="1" max="15" value="{{ import_clips }}"><button type="button" class="ghost" data-step="1">+</button></div></div>
+    <div class="grow"><label>Format</label>
+      <div class="layout-pick" role="radiogroup">
+        {% for key, label, desc in layouts %}
+        <label class="lp {{ 'on' if key == import_layout }}" title="{{ desc }}"><input type="radio" name="imp-layout" value="{{ key }}" {{ 'checked' if key == import_layout }}>
+          <span class="lp-thumb lp-{{ key }}"><i></i></span><span>{{ label }}</span></label>
+        {% endfor %}
+      </div></div>
+  </div>
+
+  <label class="drop" id="drop">
+    <input type="file" id="files" accept="video/*,.mkv,.flv,.ts" multiple hidden>
+    <span class="drop-icon">📥</span>
+    <b>Drop stream videos here</b>
+    <span class="muted">or click to pick files. Add as many as you like; they're clipped one after another.</span>
+  </label>
+  <div id="uploads" class="uploads"></div>
+
+  <details class="more">
+    <summary>Paste links instead (Twitch VODs, YouTube, Kick…)</summary>
+    <form method="post" action="/import/links" id="links-form">
+      <textarea name="links" rows="4" placeholder="One link per line"></textarea>
+      <input type="hidden" name="streamer"><input type="hidden" name="layout"><input type="hidden" name="clips">
+      <p><button>Add links to the queue</button></p>
+    </form>
+  </details>
+  <details class="more">
+    <summary>Huge files? Drop them in a folder instead</summary>
+    <p class="muted small">Anything you copy into this folder is picked up within a minute. Put videos in a subfolder named after the streamer (for example <code>inbox\xqc\</code>) and SXM tags them with that name.</p>
+    <div class="row"><code class="path" id="inbox-path">{{ inbox }}</code><button type="button" class="ghost copy" data-copy="#inbox-path">📋 Copy path</button></div>
+  </details>
+</section>
+
+<section class="reveal">
+  <h2>Queue</h2>
+  <div id="queue" class="queue">
+    {% for q in queue %}
+    <div class="q-item {{ q.state }}" data-id="{{ q.id }}">
+      <span class="q-icon">{{ {'working':'⚙️','waiting':'⏳','done':'✅','failed':'⚠️','removed':'🗑'}.get(q.state, '•') }}</span>
+      <div class="q-main">
+        <b class="ellipsis">{{ q.name }}</b>
+        <span class="muted small">{{ q.streamer or 'no streamer set' }}{% if q.length %} · {{ q.length }}{% endif %} · {{ q.clips_wanted or '' }} clips · {{ {'auto':'auto format','stack':'facecam + gameplay','blur':'full frame','crop':'center crop'}.get(q.layout or 'auto') }}</span>
+        <div class="q-bar"><i></i></div>
+        <span class="q-progress small">{% if q.state == 'waiting' %}#{{ q.position }} in line{% else %}{{ q.progress or q.status }}{% endif %}{% if q.error %}: {{ q.error[:140] }}{% endif %}</span>
+      </div>
+      <div class="q-actions">
+        {% if q.to_review %}<a class="btn" href="/review">Review {{ q.to_review }} →</a>{% endif %}
+        {% if q.state == 'failed' or q.state == 'removed' %}<form method="post" action="/import/{{ q.id }}/retry" class="inline"><button class="ghost">Retry</button></form>{% endif %}
+        {% if q.state == 'waiting' %}<form method="post" action="/import/{{ q.id }}/remove" class="inline"><button class="ghost icon" title="Remove">✕</button></form>{% endif %}
+      </div>
+    </div>
+    {% else %}
+    <div class="card muted" id="q-empty">Nothing queued yet. Drop a stream above to start.</div>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="reveal">
+  <h2>The formats</h2>
+  <p class="muted" style="margin-top:-6px">Every clip comes out 1080×1920 (9:16), up to 59 seconds, with word-by-word captions, a hook at the top for the first 3 seconds, zoom punches on big reactions and loudness set for phones. Ready for YouTube Shorts, TikTok, Instagram Reels and Facebook Reels.</p>
+  <div class="formats">
+    {% for key, label, desc in layouts if key != 'auto' %}
+    <figure class="card fmt">
+      <img src="/static/formats/{{ key }}.jpg" alt="{{ label }} example" loading="lazy">
+      <figcaption><b>{{ label }}</b><span class="muted small">{{ desc }}</span></figcaption>
+    </figure>
+    {% endfor %}
+  </div>
+</section>
+<script>window.SXM_IMPORT = true;</script>
+{% endblock %}

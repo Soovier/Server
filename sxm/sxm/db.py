@@ -60,6 +60,11 @@ CREATE TABLE IF NOT EXISTS sources (
     local_path TEXT,
     error TEXT,
     found_at TEXT NOT NULL,
+    layout TEXT,                          -- per-video framing override (auto|stack|blur|crop)
+    clips_wanted INTEGER,                 -- per-video clip count override
+    progress TEXT,                        -- what the clipper is doing right now
+    clips_made INTEGER DEFAULT 0,
+    priority INTEGER DEFAULT 0,           -- imports you queue yourself go first
     UNIQUE(platform, external_id)
 );
 
@@ -188,6 +193,8 @@ class DB:
         adds = {
             "campaigns": {"site_campaign_id": "INTEGER"},
             "submissions": {"site_submission_id": "INTEGER"},
+            "sources": {"layout": "TEXT", "clips_wanted": "INTEGER", "progress": "TEXT",
+                        "clips_made": "INTEGER DEFAULT 0", "priority": "INTEGER DEFAULT 0"},
             "clips": {"qc_status": "TEXT", "qc_notes": "TEXT", "copyright_risk": "REAL DEFAULT 0",
                       "layout": "TEXT", "downloaded_at": "TEXT"},
         }
