@@ -123,6 +123,7 @@ def review_page(request: Request):
                     WHERE c.status='pending_review' ORDER BY c.score DESC, c.id""")
     for c in clips:
         c["permitted"] = review.has_permission(db, c)
+        c["paste"] = review.paste_text(c)
     return page(request, "review.html", clips=clips,
                 min_score=db.get_setting("auto_approve_min_score", "0"))
 
@@ -145,6 +146,34 @@ def toggle_auto(enabled: str = Form("0"), min_score: str = Form("0")):
     db.set_setting("auto_approve", "1" if enabled == "1" else "0")
     db.set_setting("auto_approve_min_score", min_score or "0")
     return RedirectResponse("/review", 303)
+
+
+@app.get("/download/{clip_id}")
+def download_clip(clip_id: int):
+    db = get_db()
+    clip = db.one("SELECT * FROM clips WHERE id=?", (clip_id,))
+    path = settings.media_dir / "clips" / f"clip_{clip_id}.mp4"
+    if not clip or not path.exists():
+        raise HTTPException(404)
+    db.update("clips", clip_id, downloaded_at=datetime.now(timezone.utc).replace(microsecond=0).isoformat())
+    return FileResponse(path, media_type="video/mp4", filename=review.download_name(clip))
+
+
+@app.get("/downloads", response_class=HTMLResponse)
+def downloads_page(request: Request, show: str = "all"):
+    db = get_db()
+    where = {"posted": "c.status='posted'", "ready": "c.status IN ('pending_review','approved','scheduled')",
+             "new": "c.downloaded_at IS NULL"}.get(show, "1=1")
+    clips = db.q(f"""SELECT c.*, s.streamer FROM clips c JOIN sources s ON s.id=c.source_id
+                     WHERE c.video_path IS NOT NULL AND c.status NOT IN ('rejected','rendering','failed')
+                     AND {where} ORDER BY c.id DESC LIMIT 60""")
+    for c in clips:
+        c["paste"] = review.paste_text(c)
+        c["posts"] = db.q("""SELECT p.platform, p.permalink, p.status, p.scheduled_at, ch.name channel_name
+                             FROM posts p LEFT JOIN channels ch ON ch.id=p.channel_id
+                             WHERE p.clip_id=? AND p.status!='cancelled' ORDER BY p.scheduled_at""", (c["id"],))
+        c["has_file"] = (settings.media_dir / "clips" / f"clip_{c['id']}.mp4").exists()
+    return page(request, "downloads.html", nav="downloads", clips=clips, show=show)
 
 
 @app.get("/media/{kind}/{name}")

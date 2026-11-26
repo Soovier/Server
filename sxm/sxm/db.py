@@ -83,6 +83,7 @@ CREATE TABLE IF NOT EXISTS clips (
     qc_notes TEXT,
     copyright_risk REAL DEFAULT 0,        -- 0..1
     layout TEXT,                          -- how it was framed: stack | blur | crop
+    downloaded_at TEXT,
     created_at TEXT NOT NULL,
     reviewed_at TEXT
 );
@@ -188,7 +189,7 @@ class DB:
             "campaigns": {"site_campaign_id": "INTEGER"},
             "submissions": {"site_submission_id": "INTEGER"},
             "clips": {"qc_status": "TEXT", "qc_notes": "TEXT", "copyright_risk": "REAL DEFAULT 0",
-                      "layout": "TEXT"},
+                      "layout": "TEXT", "downloaded_at": "TEXT"},
         }
         for table, cols in adds.items():
             have = {r[1] for r in self._conn.execute(f"PRAGMA table_info({table})")}

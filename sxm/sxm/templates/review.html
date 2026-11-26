@@ -35,6 +35,12 @@
         {% if c.campaign %}<span class="check-chip good">💰 {{ c.campaign }}</span>{% endif %}
       </div>
       {% if c.qc_notes %}<p class="qc muted">{{ c.qc_notes }}</p>{% endif %}
+      <div class="paste">
+        <div class="paste-head"><span class="small muted">Ready-to-paste caption</span>
+          <span><button type="button" class="ghost copy" data-copy="#cap-{{ c.id }}">📋 Copy</button>
+          {% if c.video_path %}<a class="btn ghost" href="/download/{{ c.id }}" download data-no-boost data-downloaded>⬇</a>{% endif %}</span></div>
+        <textarea id="cap-{{ c.id }}" rows="3" readonly>{{ c.paste.caption }}</textarea>
+      </div>
       <details class="edit">
         <summary>✏️ Edit text</summary>
         <label>On-screen hook</label><input name="hook" value="{{ c.hook or '' }}">

@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="row" style="justify-content:space-between">
+  <h1>Downloads</h1>
+  <div class="seg">
+    {% for k, label in [('all','All'),('new','Not downloaded'),('ready','Not posted yet'),('posted','Posted')] %}
+    <a href="/downloads?show={{ k }}" class="{{ 'on' if show == k }}">{{ label }}</a>
+    {% endfor %}
+  </div>
+</div>
+<p class="muted">Your newest clips first. Each one comes with its caption written for you: press <b>Copy</b>, paste it into the app, done.</p>
+
+{% if clips %}
+<div class="dl-grid">
+  {% for c in clips %}
+  <article class="card dl" style="--i:{{ loop.index0 % 12 }}">
+    <div class="dl-media">
+      {% if c.has_file %}<video src="/media/clips/clip_{{ c.id }}.mp4" preload="none" controls playsinline {% if c.thumb_path %}poster="/media/clips/clip_{{ c.id }}.jpg"{% endif %}></video>{% else %}<div class="muted small dl-missing">File removed</div>{% endif %}
+      {% if c.downloaded_at %}<span class="dl-badge">✓ downloaded</span>{% endif %}
+    </div>
+    <div class="dl-body">
+      <b class="hook-preview">{{ c.hook or ('Clip #' ~ c.id) }}</b>
+      <span class="muted small">{{ c.streamer }} · {{ c.created_at|local }} · {{ '%.0f'|format(c.end_s - c.start_s) }}s</span>
+      <div class="paste">
+        <div class="paste-head"><span class="small muted">Caption + hashtags</span>
+          <button type="button" class="ghost copy" data-copy="#cap-{{ c.id }}">📋 Copy</button></div>
+        <textarea id="cap-{{ c.id }}" rows="4" readonly>{{ c.paste.caption }}</textarea>
+      </div>
+      <div class="paste">
+        <div class="paste-head"><span class="small muted">YouTube title</span>
+          <button type="button" class="ghost copy" data-copy="#title-{{ c.id }}">📋 Copy</button></div>
+        <input id="title-{{ c.id }}" value="{{ c.paste.title }}" readonly>
+      </div>
+      {% if c.posts %}
+      <div class="checks">
+        {% for p in c.posts %}
+          {% if p.permalink %}<a class="check-chip good" href="{{ p.permalink }}" target="_blank" rel="noopener">✓ {{ p.channel_name or p.platform }}</a>
+          {% else %}<span class="check-chip">{{ p.channel_name or p.platform }} · {{ p.status }}{% if p.status == 'scheduled' %} {{ p.scheduled_at|local }}{% endif %}</span>{% endif %}
+        {% endfor %}
+      </div>
+      {% endif %}
+      <div class="row">
+        {% if c.has_file %}<a class="btn big" href="/download/{{ c.id }}" download data-no-boost data-downloaded>⬇ Download video</a>{% endif %}
+        <button type="button" class="ghost" data-copy-all="#cap-{{ c.id }}">Copy all + download</button>
+      </div>
+    </div>
+  </article>
+  {% endfor %}
+</div>
+{% else %}
+<div class="card caught-up"><span class="big-emoji">📂</span><div><b>No clips here yet.</b><div class="muted">Clips show up as soon as SXM makes them.</div></div></div>
+{% endif %}
+{% endblock %}

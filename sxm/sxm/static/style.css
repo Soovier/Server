@@ -255,3 +255,25 @@ button:not(.ghost):not(.toggle):not(.icon):not(.good):not(.bad), .btn:not(.ghost
   nav a i { display: none; }
   .stat-value { font-size: 30px; }
 }
+
+/* captions + downloads */
+.paste { display: flex; flex-direction: column; gap: 6px; }
+.paste-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.paste-head span:last-child { display: inline-flex; gap: 6px; }
+.paste textarea, .paste input { font-size: 13px; resize: vertical; background: #08101a; cursor: text; }
+.paste textarea.flash, .paste input.flash { animation: flashbg .7s ease; }
+@keyframes flashbg { 0% { background: rgba(34,211,238,.25); border-color: var(--accent); } 100% { background: #08101a; } }
+button.copy { padding: 6px 12px; font-size: 13px; }
+button.copied { background: #047857 !important; color: #fff; border-color: #047857; animation: pop .35s cubic-bezier(.3,1.6,.5,1); }
+.btn.ghost { padding: 6px 12px; }
+.dl-grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 520px), 1fr)); }
+.dl { display: grid; grid-template-columns: 170px 1fr; gap: 16px; animation: rise .4s ease-out both; animation-delay: calc(var(--i) * 40ms); }
+.dl-media { position: relative; }
+.dl-media video, .dl-missing { width: 100%; aspect-ratio: 9/16; border-radius: 10px; background: #000; display: grid; place-items: center; }
+.dl-badge { position: absolute; left: 8px; top: 8px; background: rgba(4,120,87,.9); color: #fff; font-size: 11px; padding: 3px 8px; border-radius: 999px; animation: pop .4s cubic-bezier(.3,1.6,.5,1); }
+.dl-body { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+@media (max-width: 560px) { .dl { grid-template-columns: 1fr; } .dl-media video { max-height: 55vh; } }
+header { gap: 16px; }
+nav a { padding: 8px 10px; }
+@media (max-width: 1360px) { .status .tag:last-child { display: none; } }
+@media (max-width: 1180px) { nav a i { display: none; } }

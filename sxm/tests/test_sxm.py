@@ -440,3 +440,24 @@ def test_auto_approve_holds_failed_qc_and_risky_clips(db):
     review.auto_approve_pending(db)
     st = {r["id"]: r["status"] for r in db.q("SELECT id,status FROM clips")}
     assert st[good] == "scheduled" and st[bad_qc] == "pending_review" and st[risky] == "pending_review"
+
+
+def test_paste_text_and_downloads(db, tmp_path):
+    from fastapi.testclient import TestClient
+    from sxm.web import app
+    cid = make_clip(db)
+    db.update("clips", cid, hook="He did not see that", caption="Insane getaway", hashtags="#gta6 #shorts #gta6")
+    clip = db.one("SELECT * FROM clips WHERE id=?", (cid,))
+    paste = review.paste_text(clip)
+    assert paste["caption"] == "Insane getaway\n\n#gta6 #shorts"
+    assert paste["title"].endswith("#shorts") and len(paste["title"]) <= 100
+    (settings.media_dir / "clips" / f"clip_{cid}.mp4").write_bytes(b"0" * 100)
+    with TestClient(app) as c:
+        page = c.get("/downloads")
+        assert page.status_code == 200 and "Insane getaway" in page.text and f"/download/{cid}" in page.text
+        r = c.get(f"/download/{cid}")
+        assert r.status_code == 200 and "attachment" in r.headers["content-disposition"]
+        assert "sxm-" in r.headers["content-disposition"] and "he-did-not-see-that" in r.headers["content-disposition"]
+        assert c.get("/downloads?show=new").text.count(f"/download/{cid}") == 0
+        assert c.get("/download/9999").status_code == 404
+    assert db.one("SELECT downloaded_at FROM clips WHERE id=?", (cid,))["downloaded_at"]

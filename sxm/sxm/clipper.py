@@ -240,7 +240,9 @@ def default_copy(m: Moment, streamer: str, title: str) -> Moment:
         first = " ".join(w.text.strip() for w in m.words[:6])
         m.hook = (first[:40] + "...") if first else (title[:40] if title else "WAIT FOR IT")
     if not m.caption:
-        m.caption = f"{title[:90]} | {streamer}" if streamer else title[:120]
+        line = m.hook.rstrip(".") if m.hook and m.hook != "WAIT FOR IT" else (title[:80] or "Wait for it")
+        credit = f" 🎥 {streamer}" if streamer else ""
+        m.caption = f"{line[:1].upper()}{line[1:]} 😳{credit} | Follow for more clips"[:200]
     if not m.hashtags:
         tag = re.sub(r"[^a-zA-Z0-9]", "", streamer or "")
         m.hashtags = " ".join(x for x in (f"#{tag}" if tag else "", "#clips", "#stream", "#shorts") if x)

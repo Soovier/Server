@@ -6,7 +6,7 @@
   const main = () => document.getElementById('main');
   const bar = document.getElementById('progress');
   const canBoost = (url) => url.origin === location.origin &&
-    !/^\/(oauth|media|static|api|login)/.test(url.pathname);
+    !/^\/(oauth|media|static|api|login|download\/)/.test(url.pathname);
   let busy = 0;
 
   function progress(on) {
@@ -136,6 +136,44 @@
     const c = e.target.closest('[data-confetti]');
     if (c) { const r = c.getBoundingClientRect(); confetti(r.left + r.width / 2, r.top); }
   }, true);
+
+  // Copy caption buttons and download feedback.
+  async function copyFrom(sel, btn) {
+    const el = document.querySelector(sel);
+    if (!el) return;
+    const text = el.value !== undefined ? el.value : el.textContent;
+    try { await navigator.clipboard.writeText(text); }
+    catch (_) { el.select && el.select(); document.execCommand('copy'); }
+    if (btn) {
+      const was = btn.innerHTML;
+      btn.classList.add('copied'); btn.innerHTML = '✓ Copied';
+      setTimeout(() => { btn.classList.remove('copied'); btn.innerHTML = was; }, 1600);
+    }
+    el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');
+    toast('Caption copied. Paste it in your post.');
+  }
+
+  document.addEventListener('click', (e) => {
+    const c = e.target.closest('[data-copy]');
+    if (c) { e.preventDefault(); copyFrom(c.dataset.copy, c); return; }
+    const all = e.target.closest('[data-copy-all]');
+    if (all) {
+      e.preventDefault();
+      copyFrom(all.dataset.copyAll, null);
+      const dl = all.closest('article, form').querySelector('[data-downloaded]');
+      if (dl) dl.click();
+      return;
+    }
+    const d = e.target.closest('[data-downloaded]');
+    if (d) {
+      toast('⬇ Downloading to your Downloads folder…');
+      const card = d.closest('article');
+      if (card && !card.querySelector('.dl-badge')) {
+        const b = document.createElement('span'); b.className = 'dl-badge'; b.textContent = '✓ downloaded';
+        card.querySelector('.dl-media').appendChild(b);
+      }
+    }
+  });
 
   // Home: keep the numbers live without reloading.
   let liveTimer = null;

@@ -121,3 +121,21 @@ def auto_approve_pending(db: DB) -> str:
         approve(db, c["id"], note="auto-approved")
         n += 1
     return f"auto-approved {n}, left {skipped} for manual review"
+
+
+def paste_text(clip: dict) -> dict:
+    """Ready-to-paste copy for each platform: one caption with hashtags, plus a
+    YouTube title (max 100 chars, with #shorts)."""
+    caption = (clip.get("caption") or "").strip()
+    tags = " ".join(dict.fromkeys((clip.get("hashtags") or "").split()))
+    full = f"{caption}\n\n{tags}".strip() if tags else caption
+    title = (clip.get("hook") or caption or "Clip").strip()
+    if "#shorts" not in title.lower():
+        title = f"{title[:91].rstrip()} #shorts"
+    return {"caption": full[:2200], "title": title[:100], "tags": tags}
+
+
+def download_name(clip: dict) -> str:
+    import re
+    slug = re.sub(r"[^a-z0-9]+", "-", (clip.get("hook") or "clip").lower()).strip("-")[:40] or "clip"
+    return f"sxm-{clip['id']}-{slug}.mp4"
